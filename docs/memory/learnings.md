@@ -2,6 +2,18 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-28 — On a win64 (WoW64) prefix iLumina looks for
+  `C:\Program Files (x86)\iLuminaPO\iLuminaInfo.txt`. If it's installed under
+  `Program Files` it shows "Error occurred reading file Bad file name". Found
+  with `WINEDEBUG=+file`. (→ lib.sh PF_DIR, ADR 0006)
+- 2026-10-28 — WineHQ's `winehq-stable` 11.0 for Ubuntu is NOT a pure WoW64
+  build: with `i386-unix` hidden, 32-bit programs don't start (ShellExecuteEx
+  failed). Kron4ek's `*-amd64-wow64` tarball has no `i386-unix` and works.
+  (→ ADR 0006)
+- 2026-10-28 — The QuickTime wizard is 552×308 on Wine 9 and 552×333 on Wine 11.
+  The button sits 20 px above the bottom edge in both. Match the width and
+  click from the bottom. (→ install-quicktime.sh)
+
 - 2026-10-28 — On Apple Silicon (Docker Desktop + Rosetta), `QuickTimeInstaller.exe`
   fails at once: `wine: failed to create main module … status c0000018`
   (STATUS_CONFLICTING_ADDRESSES). The exe has no relocations and must load at

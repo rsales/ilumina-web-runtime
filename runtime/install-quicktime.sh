@@ -31,30 +31,32 @@ qt_fail() {
   die "$1"
 }
 
-# Window sizes and default-button offsets, measured on Wine 9.0.
-WIZARD_SIZE=(552 308); WIZARD_BTN=(408 288)   # setup wizard: Next / Agree / Close
-ASSIST_SIZE=(324 363); ASSIST_BTN=(273 347) # "QuickTime Settings" assistant: Next
+# Window width and default-button position: x from the left edge, y from the
+# BOTTOM edge. Measured on Wine 9.0 (wizard 552x308) and Wine 11 WoW64
+# (552x333): only the height changes, so the bottom offset holds for both.
+WIZARD_W=552; WIZARD_BTN=(408 20)   # setup wizard: Next / Agree / Close
+ASSIST_W=324; ASSIST_BTN=(273 16)   # "QuickTime Settings" assistant: Next
 
 click_default() {  # $1 = wizard|assist
-  local -n size="${1^^}_SIZE" btn="${1^^}_BTN"
-  local w id x y
-  w="$(find_window_sized "${size[0]}" "${size[1]}")" || return 1
-  read -r id x y <<<"$w"
+  local -n width="${1^^}_W" btn="${1^^}_BTN"
+  local w id x y h
+  w="$(find_window_w "$width")" || return 1
+  read -r id x y h <<<"$w"
   read -r x y <<<"$(ensure_onscreen "$id" "$x" "$y")"
-  slow_click $((x + btn[0])) $((y + btn[1]))
+  slow_click $((x + btn[0])) $((y + h - btn[1]))
 }
 
 # 1) Welcome, Welcome 2, Licence (Agree), Destination, Setup type,
 #    Program folder, Pro registration (left empty) = 7 pages.
 log "waiting up to ${QT_WAIT_SECONDS}s for the QuickTime wizard"
 for ((t = 0; t < QT_WAIT_SECONDS; t += 5)); do
-  find_window_sized "${WIZARD_SIZE[@]}" >/dev/null && break
+  find_window_w "$WIZARD_W" >/dev/null && break
   kill -0 "$QT_PID" 2>/dev/null || pgrep -f QuickTimeInstaller >/dev/null || \
     qt_fail "QuickTime installer exited before showing its wizard"
   (( t % 60 == 0 )) && { log "  still waiting (${t}s)"; shot "qt-wait-$t"; }
   sleep 5
 done
-find_window_sized "${WIZARD_SIZE[@]}" >/dev/null || \
+find_window_w "$WIZARD_W" >/dev/null || \
   qt_fail "QuickTime wizard did not appear within ${QT_WAIT_SECONDS}s"
 log "wizard is up"
 
@@ -75,7 +77,7 @@ for _ in $(seq 1 300); do
   for id in $(xdotool search --onlyvisible --name '^QuickTime$' 2>/dev/null); do
     xdotool windowclose "$id" 2>/dev/null || true
   done
-  if find_window_sized "${ASSIST_SIZE[@]}" >/dev/null; then
+  if find_window_w "$ASSIST_W" >/dev/null; then
     assist_seen=1; shot "qt-assistant"; click_default assist || true
   elif (( assist_seen )); then
     break

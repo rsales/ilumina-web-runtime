@@ -18,15 +18,34 @@ process. Docker would then use Rosetta, not QEMU, and the 64-bit process
 controls its own low address space (the preloader reserves 0x400000).
 
 ## What the branch changes
-- Wine 11 from `dl.winehq.org` (`winehq-stable`) instead of Ubuntu's Wine 9.
-- The build moves `lib/wine/i386-unix` aside, so 32-bit programs can only run
-  through WoW64. It fails if `wow64.dll` / `wow64cpu.dll` / `i386-windows`
-  are missing.
+- Wine 11.0 as a **pure WoW64 build** (Kron4ek `wine-11.0-amd64-wow64.tar.xz`
+  from GitHub, pinned by SHA-256 with `ADD --checksum`) instead of Ubuntu's Wine 9.
+  No `i386` dpkg architecture at all. Ubuntu's `wine64` package is installed
+  only to pull in the 64-bit runtime libraries.
+  - First attempt: WineHQ `winehq-stable` 11.0 with `i386-unix` hidden. That
+    failed on the Mac (`ShellExecuteEx failed`, `failed to open …syswow64\cmd.exe`).
+    WineHQ's Ubuntu packages are an old-style build: 32-bit programs still need
+    `i386-unix`.
+- The install goes to **`C:\Program Files (x86)\iLuminaPO`** on the win64
+  prefix. iLumina's Lingo looks up `iLuminaInfo.txt` under the 32-bit
+  Program Files folder. With the win32 path it fails with "Error occurred
+  reading file Bad file name" (traced with `WINEDEBUG=+file`).
+- QuickTime wizard clicks are placed relative to the window's bottom edge:
+  Wine 11 draws the wizard 25 px taller (552×333 vs 552×308).
 - `WINEARCH=win64`. 32-bit system files land in `syswow64` (`sys32_dir()` in lib.sh).
 - A separate image tag (`:wow64`) and volume (`ilumina-state-wow64`), so the
   win32 install from `main` is not touched.
 - `entrypoint.sh doctor` prints the Wine layout, runs a 32-bit `cmd.exe` and
   starts `QuickTimeInstaller.exe` to see whether it gets past c0000018.
+
+## Results so far
+
+| Check | x86_64 (sandbox) | Apple Silicon |
+|---|---|---|
+| Build + layout check | ✅ | ⏳ |
+| QuickTime 6.3 unattended install | ✅ (~80 s) | ⏳ |
+| App starts, registration auto-fill | ✅ | ⏳ |
+| Animation with sound in the browser | ✅ | ⏳ |
 
 ## Success criteria
 1. `docker compose build` passes the layout check.

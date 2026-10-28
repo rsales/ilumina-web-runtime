@@ -18,8 +18,12 @@ sys32_dir() {
   fi
 }
 
-APP_DIR_WIN='C:\Program Files\iLuminaPO'
-APP_DIR="$WINEPREFIX/drive_c/Program Files/iLuminaPO"
+# A 32-bit program on 64-bit Windows lives in "Program Files (x86)", and
+# iLumina's Lingo looks for iLuminaInfo.txt there (verified with
+# WINEDEBUG=+file under Wine 11 WoW64). On a win32 prefix it is "Program Files".
+if [[ "$WINEARCH" == win64 ]]; then PF_DIR='Program Files (x86)'; else PF_DIR='Program Files'; fi
+APP_DIR_WIN="C:\\${PF_DIR}\\iLuminaPO"
+APP_DIR="$WINEPREFIX/drive_c/${PF_DIR}/iLuminaPO"
 INSTALL_MARKER="/state/.installed"
 LOG_DIR="/state/logs"
 SHOT_DIR="/state/logs/screens"
@@ -81,6 +85,20 @@ find_window_sized() {
     eval "$(xdotool getwindowgeometry --shell "$id")"
     if (( WIDTH == $1 && HEIGHT == $2 )); then
       echo "$id $X $Y"; return 0
+    fi
+  done
+  return 1
+}
+
+# Print "id x y h" for the first visible window exactly $1 px wide and at
+# least 100 px tall. Wine versions differ in caption/border height, so we
+# match the width and place clicks relative to the window's bottom edge.
+find_window_w() {
+  local id WINDOW X Y WIDTH HEIGHT SCREEN
+  for id in $(xdotool search --onlyvisible --name '' 2>/dev/null); do
+    eval "$(xdotool getwindowgeometry --shell "$id")"
+    if (( WIDTH == $1 && HEIGHT >= 100 )); then
+      echo "$id $X $Y $HEIGHT"; return 0
     fi
   done
   return 1

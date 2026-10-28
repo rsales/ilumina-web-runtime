@@ -38,7 +38,7 @@ chmod -R u+w "$APP_DIR"
 
 # Byte-for-byte what the original installer wrote for a full CD install
 # (no trailing newline). #CDDrive points at CD 1 on D:.
-printf '%s' '[#applicationPath: "C:\Program Files\iLuminaPO\", #Full: -1, #DVDOrCD: #cd, #DvDDrive: "", #CDDrive: "D:\", #edition: "Gold", #version: 2.50, #installRanFromApp: 0]' \
+printf '[#applicationPath: "%s\\", #Full: -1, #DVDOrCD: #cd, #DvDDrive: "", #CDDrive: "D:\\", #edition: "Gold", #version: 2.50, #installRanFromApp: 0]' "$APP_DIR_WIN" \
   > "$APP_DIR/iLuminaInfo.txt"
 
 KEY='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{BF0F5955-FC76-4F85-A13D-C9A8A9A5E067}'

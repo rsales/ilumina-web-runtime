@@ -12,8 +12,9 @@ _Last updated: 2026-10-28. Overwrite this file at the end of each session._
 ## Active experiment
 
 Branch `experiment/wine11-wow64` (ADR 0006): Wine 11 new-WoW64, to get
-around QEMU's c0000018 on Apple Silicon. **Untested**: the sandbox can't
-reach dl.winehq.org and has no arm64 host. The owner tests on a Mac mini (M-series).
+around QEMU's c0000018 on Apple Silicon. Pure WoW64 Wine 11 (Kron4ek build)
+works end-to-end on x86_64: QuickTime install, app, registration auto-fill,
+animation with sound. **Next:** the owner tests on a Mac mini (M-series).
 
 ## Next steps (in priority order)
 
