@@ -44,9 +44,11 @@ minutes and about 2 GB.
   activation code, put it in `.env`. Codes are tied to the installation,
   so a code from your old PC may be rejected. See
   [docs/use-cases.md](docs/use-cases.md) (UC4).
-- **Apple Silicon: not supported yet.** Docker on an M-series Mac emulates
-  32-bit x86 with QEMU user-mode, and the bundled QuickTime installer can't
-  load there (`status c0000018`). Use an x86_64 machine or VPS.
+- **Apple Silicon: not supported.** In Docker on an M-series Mac, 32-bit x86
+  code can't run at all: QEMU fails with `status c0000018`, and Rosetta for
+  Linux doesn't support 32-bit compatibility mode (`rosetta error: invalid gdt
+  selector index 4`). That holds for every Wine build. Use an x86_64 machine or
+  VPS. Details: [docs/memory/learnings.md](docs/memory/learnings.md).
 - **One user at a time** per container. It is meant for personal or
   archival use, not public hosting.
 - Picking an item from the top menu bar **sometimes** shows a Lingo error.
