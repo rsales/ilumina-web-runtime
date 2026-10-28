@@ -9,7 +9,7 @@
 # Screenshots of each step land in /state/logs/screens for debugging.
 source /opt/ilumina/lib.sh
 
-QT_QTS="$WINEPREFIX/drive_c/windows/system32/QuickTime.qts"
+QT_QTS="$(sys32_dir)/QuickTime.qts"
 if [[ -f "$QT_QTS" ]]; then log "QuickTime already installed"; exit 0; fi
 
 start_setup_display

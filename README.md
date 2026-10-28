@@ -1,5 +1,9 @@
 # iLumina Web Runtime
 
+> **Experimental branch `experiment/wine11-wow64`:** Wine 11 (WineHQ) in
+> new-WoW64 mode, an attempt to run on Apple Silicon. See
+> [ADR 0006](docs/decisions/0006-experiment-wine11-wow64.md).
+
 **Use iLumina Gold again, in a browser, from the discs you already own.**
 
 iLumina Gold (2005) is a Portuguese-language Bible and encyclopedia on four

@@ -43,7 +43,33 @@ run_stream() {
     --log-dir="$LOG_DIR"
 }
 
+# Quick environment check (useful on Apple Silicon / new-WoW64 experiments).
+doctor() {
+  set +e
+  echo "== host"; uname -m; ls /proc/sys/fs/binfmt_misc 2>/dev/null | grep -v -E '^(register|status)$'
+  echo "== wine"; command -v wine; wine --version; echo "WINEARCH=$WINEARCH"
+  ls "$(dirname "$(dirname "$(readlink -f "$(command -v wine)")")")/lib/wine" 2>/dev/null
+  echo "== prefix"
+  [[ -d "$WINEPREFIX/drive_c" ]] || wineboot -i >"$LOG_DIR/wineboot.log" 2>&1
+  ls -d "$WINEPREFIX/drive_c/windows/syswow64" 2>/dev/null && echo "win64 prefix (WoW64)" || echo "win32 prefix"
+  echo "== 32-bit program test"
+  local cmd32='C:\windows\system32\cmd.exe'
+  [[ -d "$WINEPREFIX/drive_c/windows/syswow64" ]] && cmd32='C:\windows\syswow64\cmd.exe'
+  timeout 120 wine "$cmd32" /c echo 32BIT-OK 2>&1 | grep -v -E '^(ALSA|fixme)' | tail -5
+  echo "== fixed-base 0x400000 test (QuickTime installer)"
+  if [[ -f "$APP_DIR/ThirdParty/QuickTime/QuickTimeInstaller.exe" ]]; then
+    start_setup_display
+    ( cd "$APP_DIR/ThirdParty/QuickTime" && timeout 60 wine QuickTimeInstaller.exe 2>&1 | grep -v ALSA | tail -5 ) &
+    sleep 45
+    if pgrep -f QuickTimeInstaller >/dev/null; then echo "QuickTimeInstaller is RUNNING (good)"; else echo "QuickTimeInstaller is not running (see output above)"; fi
+    wineserver -k
+  else
+    echo "skipped: run 'install' once so the program files exist"
+  fi
+}
+
 case "${1:-run}" in
+  doctor)  doctor ;;
   run)     run_stream ;;
   install) install_all ;;
   shell)   exec bash ;;

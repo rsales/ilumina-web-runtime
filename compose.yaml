@@ -6,14 +6,14 @@
 services:
   ilumina:
     build: .
-    image: ilumina-web-runtime:dev
+    image: ilumina-web-runtime:wow64   # experiment branch: separate image
     # Wine runs 32-bit x86 code. On Apple Silicon this uses emulation.
     platform: linux/amd64
     ports:
       - "127.0.0.1:14500:14500"
     volumes:
       - ${ILUMINA_MEDIA_DIR:?set ILUMINA_MEDIA_DIR to the folder with cd1..cd4}:/media/ilumina:ro
-      - ilumina-state:/state
+      - ilumina-state-wow64:/state   # experiment: win64 prefix, separate volume
     # Optional owner data for the first-run dialogs (see .env.example).
     env_file:
       - path: .env
@@ -22,4 +22,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  ilumina-state:
+  ilumina-state-wow64:

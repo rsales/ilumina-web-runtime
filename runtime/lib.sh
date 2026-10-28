@@ -6,7 +6,17 @@ set -euo pipefail
 : "${ILUMINA_MEDIA:=/media/ilumina}"
 : "${ILUMINA_RES:=1024x768}"
 
-export WINEPREFIX WINEARCH=win32 WINEDEBUG="${WINEDEBUG:--all}"
+export WINEPREFIX WINEARCH="${WINEARCH:-win32}" WINEDEBUG="${WINEDEBUG:--all}"
+
+# 32-bit system DLLs live in system32 on a win32 prefix, but in syswow64 on a
+# win64 (WoW64) prefix.
+sys32_dir() {
+  if [[ -d "$WINEPREFIX/drive_c/windows/syswow64" ]]; then
+    echo "$WINEPREFIX/drive_c/windows/syswow64"
+  else
+    echo "$WINEPREFIX/drive_c/windows/system32"
+  fi
+}
 
 APP_DIR_WIN='C:\Program Files\iLuminaPO'
 APP_DIR="$WINEPREFIX/drive_c/Program Files/iLuminaPO"
