@@ -62,7 +62,7 @@ Pick what your change touches. All of them for changes to `Dockerfile` or
 for f in runtime/*.sh tools/*.sh; do bash -n "$f"; done
 
 # 2. Discs (requires the user's discs)
-tools/verify-discs.sh ./discs                      # → OK: 3298 files match …
+tools/verify-discs.sh ./discs                      # → OK: 3297 files match …
 
 # 3. Clean install on a fresh volume
 docker compose down -v && docker compose run --rm ilumina install

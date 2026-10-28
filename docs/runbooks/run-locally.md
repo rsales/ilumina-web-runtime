@@ -20,7 +20,7 @@ discs/cd3/3.txt   discs/cd4/4.txt
 Check it:
 
 ```sh
-tools/verify-discs.sh ./discs     # expect: OK: 3298 files match …
+tools/verify-discs.sh ./discs     # expect: OK: 3297 files match …
 ```
 
 ## 2. Configure

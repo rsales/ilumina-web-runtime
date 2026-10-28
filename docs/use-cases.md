@@ -36,9 +36,9 @@ problem. Each use case lists how it is served today and how well (✅ / ⚠️ /
 - **Pain:** discs from 2005 rot. Old images (`.nrg`, Toast HFS hybrids) are
   awkward to open, and you can't tell whether a copy is complete.
 - **Solution:** `tools/extract-discs.sh` (⏳ not yet run end-to-end on real
-  images) and `tools/verify-discs.sh`, which checks all 3,298 files against
+  images) and `tools/verify-discs.sh`, which checks all 3,297 files against
   `manifests/ilumina-gold-2.50-ptbr.sha256`.
-- **Done when:** `verify-discs.sh` prints `OK: 3298 files match`.
+- **Done when:** `verify-discs.sh` prints `OK: 3297 files match`.
 
 ## UC4 — "Activate my copy" ⚠️
 
