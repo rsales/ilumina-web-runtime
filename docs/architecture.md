@@ -1,4 +1,8 @@
-# Architecture notes
+# Architecture
+
+**What it solves:** run an unmodified 2005 Director MX application, with its
+native Xtras and QuickTime 6, on a modern host, and use it from a browser
+tab with sound. Decisions behind each choice: [decisions/](decisions/README.md).
 
 ## Why Wine and not static recompilation
 
@@ -54,4 +58,4 @@ visitor:
 - each session needs about 1 vCPU and 512 MB RAM.
 
 Pick the snapshot and persistence policy carefully. Do **not** design it to
-reset the product's activation trial (see COMPATIBILITY.md → Activation).
+reset the product's activation trial (see compatibility.md → Activation and decision 0005).
