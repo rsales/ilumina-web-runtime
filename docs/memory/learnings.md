@@ -2,6 +2,12 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-28 — On Apple Silicon (Docker Desktop + Rosetta), `QuickTimeInstaller.exe`
+  fails at once: `wine: failed to create main module … status c0000018`
+  (STATUS_CONFLICTING_ADDRESSES). The exe has no relocations and must load at
+  0x400000; the emulator's memory layout occupies that range. `iLumina.exe`
+  and `iLuminaInstaller.exe` load at 0x20000000 (also no relocations).
+  wineboot itself works. Next test: Docker Desktop with Rosetta off (QEMU).
 - 2026-10-28 — On Apple Silicon (Docker Desktop, amd64 emulation), wineboot and
   the file copy are fast (~15 s and ~12 s), but the QuickTime installer had
   not shown its wizard after 60 s. Timeouts must assume emulation.
