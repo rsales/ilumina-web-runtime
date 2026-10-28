@@ -79,7 +79,13 @@ activation, and its persistent `/state` volume keeps the trial clock like
 a normal install. Options to look into:
 
 - an owner who still has a valid activation code can enter it ("Possuo o meu
-  Código de Ativação") — it is stored in the persistent prefix;
+  Código de Ativação"), by hand or through `ILUMINA_ACTIVATION_CODE` in
+  `.env` (`runtime/auto-activate.sh`). Codes are issued per installation:
+  the phone-activation screen shows a "#1" install code (e.g.
+  `50726-…-6Z`) and asks for "#2" = the registration e-mail. The "#1" code
+  is created on first launch and kept in the prefix (it did not change
+  across restarts or hostnames), so a code from another PC/install is
+  normally rejected: "Continuar" stays disabled;
 - ask the rights holders (iLúmina Criação, Comercialização e Distribuição de
   Softwares Ltda / Visual Book) for a preservation licence, a universal
   code or permission to publish;

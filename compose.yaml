@@ -14,6 +14,10 @@ services:
     volumes:
       - ${ILUMINA_MEDIA_DIR:?set ILUMINA_MEDIA_DIR to the folder with cd1..cd4}:/media/ilumina:ro
       - ilumina-state:/state
+    # Optional owner data for the first-run dialogs (see .env.example).
+    env_file:
+      - path: .env
+        required: false
     shm_size: 512m
     restart: unless-stopped
 

@@ -62,6 +62,24 @@ ILUMINA_MEDIA_DIR=$PWD/discs docker compose up --build
 open http://localhost:14500/
 ```
 
+### Activation code (optional)
+
+If you own an activation code, put it in `.env` (copy `.env.example`,
+which is git-ignored) and the runtime types it into the activation dialog
+as soon as a browser connects:
+
+```sh
+cp .env.example .env   # fill ILUMINA_ACTIVATION_CODE (and the ILUMINA_REG_* fields)
+docker compose up -d
+```
+
+iLumina issues activation codes per installation: the code is calculated
+from the "#1" code shown under *Ativação por telefone*, plus the e-mail
+you registered with. A code obtained for your original PC is therefore
+only accepted if this installation shows the same "#1". If the code is
+rejected, the dialog stays open and `/state/logs/auto-activate.log` says
+so. The value is never written to the logs.
+
 Close iLumina and the container restarts it. To reinstall from scratch,
 run `docker compose down -v`.
 
