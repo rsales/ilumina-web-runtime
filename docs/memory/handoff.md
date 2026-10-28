@@ -14,7 +14,8 @@ _Last updated: 2026-10-28. Overwrite this file at the end of each session._
 Branch `experiment/wine11-wow64` (ADR 0006): Wine 11 new-WoW64, to get
 around QEMU's c0000018 on Apple Silicon. Pure WoW64 Wine 11 (Kron4ek build)
 works end-to-end on x86_64: QuickTime install, app, registration auto-fill,
-animation with sound. **Next:** the owner tests on a Mac mini (M-series).
+animation with sound. On the Mac M4 it fails: Rosetta can't switch into
+32-bit mode (probe `compat32`). **Decision pending: deploy on an x86_64 VPS.**
 
 ## Next steps (in priority order)
 

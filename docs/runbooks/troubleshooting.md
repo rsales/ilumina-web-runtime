@@ -14,4 +14,5 @@ Symptom first. Each entry says how to confirm the cause and what to do.
 | "Network Performance Issue" toast | Xpra 3.1 has no H.264, so frames are JPEG/WebP | — | click "Ignore", or lower the bandwidth limit; see decision 0002 |
 | Activation code rejected ("Continuar" stays grey) | code was issued for another install's "#1" code | `/state/logs/auto-activate.log` | see use-cases UC4. Do not try to work around it (decision 0005) |
 | `failed to create main module … status c0000018` (Mac M) | the exe needs fixed address 0x400000, taken by the x86 emulator | log right after "running QuickTime" | not fixable in this container on Apple Silicon (32-bit x86 runs under QEMU user-mode, with or without Rosetta). Run on an x86_64 host or a full x86 VM |
+| `rosetta error: invalid gdt selector index 4` (Mac M) | Rosetta for Linux has no 32-bit compatibility mode | `tools/wow64-probe` on branch `experiment/wine11-wow64` | not fixable in a container; use an x86_64 host |
 | Very slow on a Mac | x86 emulation on Apple Silicon | `uname -m` in the container shows `x86_64` | run on an x86_64 host |

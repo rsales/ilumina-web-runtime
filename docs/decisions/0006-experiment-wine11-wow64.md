@@ -1,6 +1,6 @@
 # 0006 — Experiment: Wine 11 in new-WoW64 mode for Apple Silicon
 
-- Status: Proposed (experiment on branch `experiment/wine11-wow64`)
+- Status: **Rejected for Apple Silicon** (Rosetta for Linux has no 32-bit compatibility mode). Works on x86_64. Branch `experiment/wine11-wow64` kept for reference
 - Date: 2026-10-28
 - Relates to: 0002 (it adds a third-party apt repo: WineHQ)
 
@@ -42,10 +42,22 @@ controls its own low address space (the preloader reserves 0x400000).
 
 | Check | x86_64 (sandbox) | Apple Silicon |
 |---|---|---|
-| Build + layout check | ✅ | ⏳ |
-| QuickTime 6.3 unattended install | ✅ (~80 s) | ⏳ |
-| App starts, registration auto-fill | ✅ | ⏳ |
-| Animation with sound in the browser | ✅ | ⏳ |
+| Build + layout check | ✅ | ✅ |
+| Wine 64-bit program (`cmd`) | ✅ | ✅ `WINE64-OK` |
+| `compat32` probe (32-bit mode switch, no Wine) | ✅ | ❌ `rosetta error: invalid gdt selector index 4`, exit 133 |
+| `hello32.exe` (minimal PE32) | ✅ | ❌ `ShellExecuteEx failed` |
+| QuickTime 6.3 unattended install | ✅ (~80 s) | ❌ |
+| App starts, registration auto-fill | ✅ | — |
+| Animation with sound in the browser | ✅ | — |
+
+**Conclusion (2026-10-28):** Docker Desktop's Rosetta for Linux translates
+only 64-bit x86 code. Any switch to the 32-bit code segment (selector
+0x23, GDT index 4) aborts. New WoW64 depends on exactly that switch, and old
+WoW goes through QEMU user-mode (c0000018). So no container-based Wine runs
+32-bit Windows programs on Apple Silicon. Options there: an x86_64 host or
+VPS (recommended), a full-system x86 VM (UTM, slow), or a native macOS Wine
+such as CrossOver, which uses macOS Rosetta's 32-bit support but has no
+browser streaming.
 
 ## Success criteria
 1. `docker compose build` passes the layout check.

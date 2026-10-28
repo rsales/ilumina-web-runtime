@@ -2,6 +2,13 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-28 — **Apple Silicon conclusion:** Rosetta for Linux (Docker Desktop on
+  a Mac M4) can't run 32-bit compatibility-mode code inside a 64-bit process.
+  `tools/wow64-probe/compat32` aborts with `rosetta error: invalid gdt selector
+  index 4` (selector 0x23 = __USER32_CS), exit 133. QEMU user-mode i386 can't
+  load fixed-base exes (c0000018). So neither old-WoW (i386) nor new-WoW64
+  Wine runs 32-bit Windows programs in a container there. The same probes all
+  pass on x86_64. (→ README, ADR 0006, troubleshooting)
 - 2026-10-28 — On a win64 (WoW64) prefix iLumina looks for
   `C:\Program Files (x86)\iLuminaPO\iLuminaInfo.txt`. If it's installed under
   `Program Files` it shows "Error occurred reading file Bad file name". Found
