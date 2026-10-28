@@ -7,7 +7,13 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   (STATUS_CONFLICTING_ADDRESSES). The exe has no relocations and must load at
   0x400000; the emulator's memory layout occupies that range. `iLumina.exe`
   and `iLuminaInstaller.exe` load at 0x20000000 (also no relocations).
-  wineboot itself works. Next test: Docker Desktop with Rosetta off (QEMU).
+  wineboot itself works. Turning Rosetta off did NOT help, which is expected:
+  Rosetta only handles x86_64. 32-bit i386 processes (the old-WoW Wine in
+  Ubuntu's package) always run under QEMU user-mode, and QEMU can't hand the
+  guest the 0x400000 range. Conclusion: the container path does not work on
+  Apple Silicon. Possible ways out: an x86_64 host, a full x86 VM (UTM), or
+  a new-WoW64 Wine (32-bit code inside a 64-bit process, so Rosetta could
+  run it). The last one is untested.
 - 2026-10-28 — On Apple Silicon (Docker Desktop, amd64 emulation), wineboot and
   the file copy are fast (~15 s and ~12 s), but the QuickTime installer had
   not shown its wizard after 60 s. Timeouts must assume emulation.

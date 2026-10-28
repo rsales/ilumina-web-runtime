@@ -44,9 +44,9 @@ minutes and about 2 GB.
   activation code, put it in `.env`. Codes are tied to the installation,
   so a code from your old PC may be rejected. See
   [docs/use-cases.md](docs/use-cases.md) (UC4).
-- **Apple Silicon.** The program is 32-bit x86. On an M-series Mac Docker
-  emulates it, so it runs, but slowly. An x86_64 machine or VPS runs it
-  at full speed.
+- **Apple Silicon: not supported yet.** Docker on an M-series Mac emulates
+  32-bit x86 with QEMU user-mode, and the bundled QuickTime installer can't
+  load there (`status c0000018`). Use an x86_64 machine or VPS.
 - **One user at a time** per container. It is meant for personal or
   archival use, not public hosting.
 - Picking an item from the top menu bar **sometimes** shows a Lingo error.
