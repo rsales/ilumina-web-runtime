@@ -1,0 +1,21 @@
+# Usage:
+#   ILUMINA_MEDIA_DIR=/path/to/discs docker compose up --build
+# where /path/to/discs contains cd1/ cd2/ cd3/ cd4/ — the extracted
+# contents of each original disc (cdN/N.txt must exist).
+# First start installs into the "ilumina-state" volume (~2 GB, a few minutes).
+services:
+  ilumina:
+    build: .
+    image: ilumina-web-runtime:dev
+    # Wine runs 32-bit x86 code. On Apple Silicon this uses emulation.
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:14500:14500"
+    volumes:
+      - ${ILUMINA_MEDIA_DIR:?set ILUMINA_MEDIA_DIR to the folder with cd1..cd4}:/media/ilumina:ro
+      - ilumina-state:/state
+    shm_size: 512m
+    restart: unless-stopped
+
+volumes:
+  ilumina-state:

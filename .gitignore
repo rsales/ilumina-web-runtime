@@ -1,0 +1,11 @@
+# Never commit original iLumina content or derived install state.
+media/
+discs/
+state/
+*.nrg
+*.iso
+*.bin
+*.cue
+*.dxr
+*.cxt
+*.vdb
