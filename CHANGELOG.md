@@ -21,6 +21,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Build failed on the official `ubuntu:24.04` image (`useradd: UID 1000 is
   not unique`): the stock `ubuntu` user is removed first.
+- The QuickTime installer timed out under emulation (Apple Silicon) with
+  "wizard window not found (page 1)". The script now waits up to
+  `QT_WAIT_SECONDS` (default 600), retries every page, and on failure prints
+  the installer log and the running processes. Install steps resume after a
+  restart instead of starting over.
 
 ## [0.1.0] - 2026-10-28
 

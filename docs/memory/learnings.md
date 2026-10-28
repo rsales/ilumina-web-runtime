@@ -2,6 +2,10 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-28 — On Apple Silicon (Docker Desktop, amd64 emulation), wineboot and
+  the file copy are fast (~15 s and ~12 s), but the QuickTime installer had
+  not shown its wizard after 60 s. Timeouts must assume emulation.
+  (→ install-quicktime.sh QT_WAIT_SECONDS)
 - 2026-10-28 — The official `ubuntu:24.04` image has a `ubuntu` user with UID 1000;
   a locally debootstrapped base doesn't, so the sandbox build hid the
   `useradd: UID 1000 is not unique` failure. Test with the real base image

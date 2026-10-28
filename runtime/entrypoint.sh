@@ -10,7 +10,8 @@ install_all() {
     log "already installed (delete the /state volume to reinstall)"
     return 0
   fi
-  /opt/ilumina/install-ilumina.sh
+  # Each step is skipped once done, so a restart after a failure resumes.
+  [[ -f /state/.files-installed ]] || { /opt/ilumina/install-ilumina.sh && touch /state/.files-installed; }
   /opt/ilumina/install-quicktime.sh
   date -u +%FT%TZ > "$INSTALL_MARKER"
   log "installation complete"

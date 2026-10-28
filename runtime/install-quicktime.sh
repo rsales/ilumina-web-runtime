@@ -16,6 +16,20 @@ start_setup_display
 log "running QuickTime 6.3 installer (unattended)"
 ( cd "$APP_DIR/ThirdParty/QuickTime" && \
   wine QuickTimeInstaller.exe >"$LOG_DIR/quicktime-installer.log" 2>&1 ) &
+QT_PID=$!
+
+# How long to wait for the first wizard page. The installer is a
+# self-extracting archive: ~10 s on x86_64, several minutes under emulation
+# (Apple Silicon). Override with QT_WAIT_SECONDS.
+QT_WAIT_SECONDS="${QT_WAIT_SECONDS:-600}"
+
+qt_fail() {
+  shot "qt-failed"
+  log "QuickTime installer log (last lines):"
+  grep -v '^ALSA' "$LOG_DIR/quicktime-installer.log" 2>/dev/null | tail -15 >&2 || true
+  log "processes:"; pgrep -a -f '\.exe' >&2 || true
+  die "$1"
+}
 
 # Window sizes and default-button offsets, measured on Wine 9.0.
 WIZARD_SIZE=(552 308); WIZARD_BTN=(408 288)   # setup wizard: Next / Agree / Close
@@ -32,16 +46,31 @@ click_default() {  # $1 = wizard|assist
 
 # 1) Welcome, Welcome 2, Licence (Agree), Destination, Setup type,
 #    Program folder, Pro registration (left empty) = 7 pages.
-for _ in $(seq 1 60); do find_window_sized "${WIZARD_SIZE[@]}" >/dev/null && break; sleep 1; done
+log "waiting up to ${QT_WAIT_SECONDS}s for the QuickTime wizard"
+for ((t = 0; t < QT_WAIT_SECONDS; t += 5)); do
+  find_window_sized "${WIZARD_SIZE[@]}" >/dev/null && break
+  kill -0 "$QT_PID" 2>/dev/null || pgrep -f QuickTimeInstaller >/dev/null || \
+    qt_fail "QuickTime installer exited before showing its wizard"
+  (( t % 60 == 0 )) && { log "  still waiting (${t}s)"; shot "qt-wait-$t"; }
+  sleep 5
+done
+find_window_sized "${WIZARD_SIZE[@]}" >/dev/null || \
+  qt_fail "QuickTime wizard did not appear within ${QT_WAIT_SECONDS}s"
+log "wizard is up"
+
+# Under emulation the pages also redraw slowly: wait per page as well.
+PAGE_DELAY="${QT_PAGE_DELAY:-4}"
 for page in 1 2 3 4 5 6 7; do
-  sleep 4; shot "qt-page-$page"
-  click_default wizard || die "QuickTime wizard window not found (page $page)"
+  sleep "$PAGE_DELAY"; shot "qt-page-$page"
+  ok=0
+  for _ in $(seq 1 30); do click_default wizard && { ok=1; break; }; sleep 2; done
+  (( ok )) || qt_fail "QuickTime wizard window not found (page $page)"
 done
 
 # 2) Files are copied; then an Explorer window for the Start-menu folder and
 #    the "QuickTime Settings" assistant pop up.
 assist_seen=0
-for _ in $(seq 1 90); do
+for _ in $(seq 1 300); do
   sleep 2
   for id in $(xdotool search --onlyvisible --name '^QuickTime$' 2>/dev/null); do
     xdotool windowclose "$id" 2>/dev/null || true
