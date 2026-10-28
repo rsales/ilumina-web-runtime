@@ -2,6 +2,11 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-28 — The official `ubuntu:24.04` image has a `ubuntu` user with UID 1000;
+  a locally debootstrapped base doesn't, so the sandbox build hid the
+  `useradd: UID 1000 is not unique` failure. Test with the real base image
+  when you can. (→ Dockerfile)
+
 - 2026-10-28 — Xpra delivers no synthetic input to app windows while no client
   is connected. Clicks from auto-activate.sh did nothing until a browser
   joined. (→ promoted to decision 0002)

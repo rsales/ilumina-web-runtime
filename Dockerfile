@@ -52,7 +52,9 @@ ENV LANG=C.UTF-8 \
     ILUMINA_RES=1024x768 \
     XPRA_PORT=14500
 
-RUN useradd --create-home --uid 1000 --shell /bin/bash ilumina \
+# The official ubuntu:24.04 image already ships a "ubuntu" user with UID 1000.
+RUN (userdel -r ubuntu 2>/dev/null || true) \
+ && useradd --create-home --uid 1000 --shell /bin/bash ilumina \
  && mkdir -p /state /media/ilumina \
  && chown ilumina:ilumina /state
 

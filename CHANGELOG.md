@@ -18,6 +18,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `docs/ARCHITECTURE.md` → `docs/architecture.md`, `docs/COMPATIBILITY.md` → `docs/compatibility.md`.
 - `.gitignore` extended (secrets, OS/editor files, logs, state, disc images, app files).
 
+### Fixed
+- Build failed on the official `ubuntu:24.04` image (`useradd: UID 1000 is
+  not unique`): the stock `ubuntu` user is removed first.
+
 ## [0.1.0] - 2026-10-28
 
 ### Added
