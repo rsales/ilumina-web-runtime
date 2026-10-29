@@ -68,7 +68,11 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   Patched in `web/scripts/patch-xpra-html5-audio.py`. The same client is used
   by the main Wine runtime.
 - **Chrome on macOS gets Vorbis, not Opus**, from the Xpra 3.1 client
-  (hard-coded blacklist). Override with `?audio_codec=mediasource:opus+mka`.
+  (hard-coded blacklist). Override with
+  `?audio_codec=mediasource:opus+mka&ignore_audio_blacklist=true`; without
+  `ignore_audio_blacklist` the requested codec is silently dropped.
+- **Don't cap Xpra audio latency below ~2 s.** Audio arrives in bursts (the
+  buffer swings 0.3–1.5 s); a 500 ms cap seeks constantly and goes silent.
 - **mountmgr `harddisk_ioctl 70c00` fixme** floods the log on every CD read
   under Boxedwine. Silenced with `-env WINEDEBUG=-all`; if it still shows,
   the container runs an old image.

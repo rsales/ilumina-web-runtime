@@ -51,11 +51,16 @@ Stop at the first ❌: the layers after it are not conclusive.
   paused**. Cause: the Xpra 3.1 HTML5 client appends audio to a MediaSource
   buffer and never skips ahead, so every stall adds lag for good. Fix:
   `web/scripts/patch-xpra-html5-audio.py` (applied at image build) jumps to
-  150 ms behind live whenever more than 500 ms is buffered (URL params
+  800 ms behind live whenever more than 2 s is buffered. A first try at
+  500/150 ms made audio go silent: measured in Chromium, Xpra sends audio in
+  bursts and the buffer swings between 0.3 and 1.5 s, so it seeked on almost
+  every burst (URL params
   `audio_max_latency`, `audio_target_latency`). Boxedwine defaults lowered
   to 300/120 ms, Pulse 60 ms. Verified only that the client loads and plays
   in headless Chromium (opus); Chrome on macOS is forced to Vorbis by the
-  client's blacklist, try `?audio_codec=mediasource:opus+mka`. Retest pending.
+  client's blacklist, try `?audio_codec=mediasource:opus+mka&ignore_audio_blacklist=true` (without the second param the codec is silently ignored). Retest pending.
+- Clicking iLumina's **volume control** flashes a popup, then the app
+  hangs. Not diagnosed yet (needs a run with `WINEDEBUG=err+all,+seh`).
 
 ### native x86_64 (sandbox, 2 vCPU, Xvfb), 2026-10-29
 
