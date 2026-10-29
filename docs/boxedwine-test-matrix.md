@@ -11,7 +11,7 @@ Stop at the first ❌: the layers after it are not conclusive.
 | L3 Director | `iLumina.exe` splash ("CARREGANDO…"), registration dialog | ✅ (with patch 0001) | ✅ | ⏳ |
 | L4 content | Home screen, Bíblia → Gênesis text | ✅ | ✅ | ⏳ |
 | L5 Xtras | book tree (TreeView), Bible text (Valentina), Mui dialogs | ✅ | ✅ | ⏳ |
-| L6 QuickTime | 6.3 wizard completes; Animações plays with sound; QTVR pans | ⚠️ installs, video plays, QTVR pans; needs GDI renderer; sound not tested | ⚠️ installs (then crash 139, recovered by restart); video plays; **audio stutters** (patch 0002 ⏳); QTVR ⏳ | ⏳ |
+| L6 QuickTime | 6.3 wizard completes; Animações plays with sound; QTVR pans | ⚠️ installs, video plays, QTVR pans; needs GDI renderer; sound not tested | ⚠️ installs (then crash 139, recovered by restart); video plays; audio in sync, no dropouts (patch 0002 + Xpra client latency cap); volume control hangs; QTVR ⏳ | ⏳ |
 | L7 performance | time to Home (s); tab memory (GB); video fps / QTVR smoothness | — | — | ⏳ |
 
 ## Environment details (fill in)
@@ -58,7 +58,9 @@ Stop at the first ❌: the layers after it are not conclusive.
   `audio_max_latency`, `audio_target_latency`). Boxedwine defaults lowered
   to 300/120 ms, Pulse 60 ms. Verified only that the client loads and plays
   in headless Chromium (opus); Chrome on macOS is forced to Vorbis by the
-  client's blacklist, try `?audio_codec=mediasource:opus+mka&ignore_audio_blacklist=true` (without the second param the codec is silently ignored). Retest pending.
+  client's blacklist, try `?audio_codec=mediasource:opus+mka&ignore_audio_blacklist=true` (without the second param the codec is silently ignored).
+- **Retest on the M4 with 2000/800 ms: audio is in sync with the video and
+  without dropouts** (owner's report, 2026-10-29). ✅
 - Clicking iLumina's **volume control** flashes a popup, then the app
   hangs. Not diagnosed yet (needs a run with `WINEDEBUG=err+all,+seh`).
 
