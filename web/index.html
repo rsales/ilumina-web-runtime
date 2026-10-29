@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iLumina Boxedwine PoC</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f4f1ea; --fg:#1d1b16; --muted:#6b665c; --line:#d8d2c4; --accent:#1f4e8c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16150f; --fg:#ece8de; --muted:#a39e92; --line:#3a372f; --accent:#7fa9e6; } }
+  body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:46rem; margin:6vh auto; padding:0 16px; }
+  h1 { font-weight:600; margin:0 0 .25rem; } p, li small { color:var(--muted); }
+  ol { padding:0; list-style:none; counter-reset:l; }
+  li { counter-increment:l; border-top:1px solid var(--line); padding:.8rem 0; display:flex; gap:1rem; align-items:baseline; }
+  li::before { content:"L" counter(l); font-weight:700; color:var(--accent); min-width:2rem; }
+  li div { flex:1; } a { color:var(--accent); font-weight:600; white-space:nowrap; }
+  code { font-size:.9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>iLumina — teste progressivo no Boxedwine</h1>
+  <p>Cada camada isola uma parte da pilha (ADR 0007). Rode na ordem; se uma falhar, as seguintes não são conclusivas.
+     Anote o resultado em <code>docs/boxedwine-test-matrix.md</code>.</p>
+  <ol id="levels"></ol>
+  <p><small>Arquivos esperados em <code>data/</code>: <code>TinyCore15Wine11.0.zip</code>, <code>probes.zip</code>, <code>ilumina.zip</code>.
+     Requer Chrome/Edge 137+, Firefox 131+ ou Safari 18.4+. Console do navegador (F12) mostra o log do Boxedwine.</small></p>
+</main>
+<script>
+  const base = { root: "TinyCore15Wine11.0", rootBase: "data/", appBase: "data/", overlayBase: "data/",
+                 resolution: "1024x768", sound: "true" };
+  const levels = [
+    ["Emulador x86 (CPU + kernel)", "Programa PE32 mínimo: caixa de mensagem e grava C:\\boxedwine-probe.txt",
+      { app: "probes", p: "hello32gui.exe", storage: "memory" }],
+    ["Wine do Boxedwine", "Notepad do próprio Wine abre e aceita digitação",
+      { p: "notepad.exe", storage: "memory" }],
+    ["Director (projector)", "iLumina.exe sem QuickTime: splash e diálogos do Director aparecem",
+      { overlay: "ilumina", p: "run-noqt.bat", storageKey: "ilumina-noqt", storage: "indexeddb" }],
+    ["Conteúdo do iLumina", "Mesma sessão: Home abre, Bíblia → Gênesis mostra texto (filmes .dxr/.cxt)",
+      { overlay: "ilumina", p: "run-noqt.bat", storageKey: "ilumina-noqt", storage: "indexeddb" }],
+    ["Xtras", "Mesma sessão: árvore de livros (TreeView), texto da Bíblia (Valentina), diálogos (Mui), volume",
+      { overlay: "ilumina", p: "run-noqt.bat", storageKey: "ilumina-noqt", storage: "indexeddb" }],
+    ["QuickTime, vídeo e QTVR", "Instala o QuickTime 6.3 (assistente original), depois Multimídia → Animações e Passeios Virtuais",
+      { overlay: "ilumina", p: "run.bat", storageKey: "ilumina", storage: "indexeddb" }],
+    ["Desempenho no Mac mini M4", "Repita L6 medindo: tempo até a Home, memória da aba, fluidez do vídeo e do QTVR", null]
+  ];
+  const ol = document.getElementById("levels");
+  for (const [title, check, extra] of levels) {
+    const li = document.createElement("li");
+    const link = extra ? `<a href="boxedwine.html?${new URLSearchParams({...base, ...extra})}">abrir</a>` : "";
+    li.innerHTML = `<div><strong>${title}</strong><br><small>${check}</small></div>${link}`;
+    ol.appendChild(li);
+  }
+</script>
+</body>
+</html>

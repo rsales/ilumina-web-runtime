@@ -1,0 +1,52 @@
+# Native Boxedwine (Linux) + Xpra: runs iLumina through Boxedwine's own x86 CPU
+# emulator and Wine 11, then streams it like the main runtime. Boxedwine has
+# binary translators for x86_64 AND arm64, so on Apple Silicon this image runs
+# as a native linux/arm64 container: no Rosetta, no QEMU (see ADR 0007).
+#
+# It shares the CPU emulator and file system with the WebAssembly build
+# (Dockerfile.wasm), so it doubles as the fast compatibility test bench.
+
+ARG BOXEDWINE_COMMIT=8790ff20428c22daa64368af9553417e4f499c94
+
+# Pinned Boxedwine source, fetched by BuildKit. Override with a local checkout:
+#   docker build --build-context boxedwine-src=/path/to/Boxedwine ...
+FROM scratch AS boxedwine-src
+ARG BOXEDWINE_COMMIT
+ADD https://github.com/danoon2/Boxedwine.git#${BOXEDWINE_COMMIT} /
+
+FROM ubuntu:24.04 AS build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates build-essential pkg-config \
+      libcurl4-openssl-dev libgl-dev libglu1-mesa-dev libsdl2-dev libssl-dev zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=boxedwine-src / /src
+RUN cd /src/project/linux && make release JOBS="$(nproc)" \
+ && install -Dm755 Build/Release/boxedwine /out/boxedwine
+
+FROM ubuntu:24.04
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates tini procps zip unzip xorriso \
+      libsdl2-2.0-0 libcurl4t64 libgl1 libglu1-mesa libssl3t64 zlib1g \
+      xvfb xauth x11-utils xdotool imagemagick \
+      xpra libjs-jquery python3-pil python3-numpy python3-lz4 python3-xdg \
+      python3-gi python3-gi-cairo python3-cairo gir1.2-gtk-3.0 \
+      python3-gst-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+      gstreamer1.0-pulseaudio pulseaudio pulseaudio-utils \
+ && sed -i 's|^start = /etc/X11/Xsession true|# start = (disabled)|' /etc/xpra/conf.d/60_server.conf \
+ && rm -rf /var/lib/apt/lists/* \
+ && (userdel -r ubuntu 2>/dev/null || true) \
+ && useradd --create-home --uid 1000 --shell /bin/bash ilumina \
+ && mkdir -p /state /media/ilumina /opt/boxedwine && chown ilumina:ilumina /state
+COPY --from=build /out/boxedwine /usr/local/bin/boxedwine
+COPY scripts/ /opt/ilumina-web/
+RUN chmod +x /opt/ilumina-web/*.sh
+ENV ILUMINA_MEDIA=/media/ilumina BOXEDWINE_FS=/opt/boxedwine/TinyCore15Wine11.0.zip \
+    ILUMINA_RES=1024x768 XPRA_PORT=14500
+USER ilumina
+WORKDIR /home/ilumina
+VOLUME ["/state"]
+EXPOSE 14500
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/ilumina-web/native-entrypoint.sh"]
+CMD ["run"]

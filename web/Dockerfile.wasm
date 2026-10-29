@@ -1,0 +1,34 @@
+# Boxedwine compiled to WebAssembly + a static server with the COOP/COEP
+# headers the multi-threaded build needs (SharedArrayBuffer).
+# The whole emulator (x86 CPU with a wasm JIT, Linux kernel, Wine 11) runs IN
+# THE BROWSER. The server only serves files. See ADR 0007.
+#
+# Data is NOT baked in: mount a folder with
+#   TinyCore15Wine11.0.zip   (Boxedwine's Wine file system)
+#   ilumina.zip              (web/scripts/make-overlay.sh, from your discs)
+# at /srv/data.
+
+ARG BOXEDWINE_COMMIT=8790ff20428c22daa64368af9553417e4f499c94
+# Boxedwine CI builds with Emscripten 5.0.7 (tools/jenkins/emscripten-unit-test-env.sh).
+ARG EMSDK_VERSION=5.0.7
+
+# Pinned Boxedwine source (override: --build-context boxedwine-src=/path).
+FROM scratch AS boxedwine-src
+ARG BOXEDWINE_COMMIT
+ADD https://github.com/danoon2/Boxedwine.git#${BOXEDWINE_COMMIT} /
+
+FROM emscripten/emsdk:${EMSDK_VERSION} AS build
+ARG BOXEDWINE_TARGET=multiThreadedJit
+COPY --from=boxedwine-src / /src
+WORKDIR /src/project/emscripten
+RUN make "$BOXEDWINE_TARGET" JOBS="$(nproc)" \
+ && dir="$(ls -d Build/* | head -1)" && mkdir -p /out \
+ && cp -r "$dir"/. /out/ && cp server.mjs /out/server.mjs && ls -la /out
+
+FROM node:22-alpine
+COPY --from=build /out/ /srv/
+COPY index.html /srv/index.html
+WORKDIR /srv
+EXPOSE 8080
+# server.mjs (from Boxedwine) adds Cross-Origin-Opener/Embedder-Policy headers.
+CMD ["node", "/srv/server.mjs", "--root", "/srv", "--host", "0.0.0.0", "--port", "8080"]

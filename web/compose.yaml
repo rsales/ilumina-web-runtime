@@ -1,0 +1,27 @@
+# Boxedwine experiment (ADR 0007). Two ways to run the same emulator:
+#
+#   docker compose -f web/compose.yaml up native   # native Boxedwine + Xpra (works as linux/arm64 on a Mac M)
+#   docker compose -f web/compose.yaml up wasm     # everything in the browser, http://localhost:8080
+#
+# Both need ILUMINA_MEDIA_DIR (discs) and BOXEDWINE_DATA_DIR (folder with
+# TinyCore15Wine11.0.zip; for wasm also ilumina.zip from scripts/make-overlay.sh).
+services:
+  native:
+    build: { context: ., dockerfile: Dockerfile.native }
+    image: ilumina-boxedwine:native
+    ports: ["127.0.0.1:14501:14500"]
+    volumes:
+      - ${ILUMINA_MEDIA_DIR:?set ILUMINA_MEDIA_DIR}:/media/ilumina:ro
+      - ${BOXEDWINE_DATA_DIR:?set BOXEDWINE_DATA_DIR}/TinyCore15Wine11.0.zip:/opt/boxedwine/TinyCore15Wine11.0.zip:ro
+      - boxedwine-state:/state
+    shm_size: 512m
+
+  wasm:
+    build: { context: ., dockerfile: Dockerfile.wasm }
+    image: ilumina-boxedwine:wasm
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - ${BOXEDWINE_DATA_DIR:?set BOXEDWINE_DATA_DIR}:/srv/data:ro
+
+volumes:
+  boxedwine-state:

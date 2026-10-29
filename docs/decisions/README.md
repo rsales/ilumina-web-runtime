@@ -11,6 +11,8 @@ status to `Superseded by NNNN`.
 | [0003](0003-bring-your-own-discs.md) | Ship no content; the user supplies the discs | Accepted |
 | [0004](0004-reproduce-installer-headless.md) | Reproduce the installer with scripts instead of running its GUI | Accepted |
 | [0005](0005-no-activation-bypass.md) | Do not bypass or generate activation codes | Accepted |
+| 0006 | Experiment: Wine 11 new-WoW64 (branch `experiment/wine11-wow64`) | Rejected for Apple Silicon |
+| [0007](0007-boxedwine-web.md) | Investigate Boxedwine WebAssembly as an alternative runtime | Accepted for experimentation (branch) |
 
 ## Template
 
