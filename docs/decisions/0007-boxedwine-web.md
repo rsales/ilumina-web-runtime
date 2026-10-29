@@ -61,6 +61,11 @@ The experiment ends with an explicit decision, recorded by superseding this ADR:
 **continue** (Boxedwine becomes the web runtime), **abandon**, or **redirect**
 the effort to the Director player reimplementation.
 
+## Progress
+
+- 2026-10-29, native x86_64: L1–L6 pass, with two fixes (keymap patch, GDI
+  renderer). See the test matrix. Next: native on the Mac M4 (arm64), then wasm.
+
 ## Known risks
 - A full install is ~1.9 GB and is fetched whole into the browser. Fallbacks:
   `cdrom=` ISOs (one disc in memory at a time; `make-overlay.sh --isos`) or

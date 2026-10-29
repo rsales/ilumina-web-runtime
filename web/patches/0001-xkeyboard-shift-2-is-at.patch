@@ -1,0 +1,13 @@
+diff --git a/source/x11/xkeyboard.cpp b/source/x11/xkeyboard.cpp
+index 0cbf2df..2d0541c 100644
+--- a/source/x11/xkeyboard.cpp
++++ b/source/x11/xkeyboard.cpp
+@@ -51,7 +51,7 @@ static const KeyInfo usKeyBoard[] =
+ 	{ 0x60, 0x58, SDL_SCANCODE_F12, XK_F12, XK_F12, 0, 0, 0, 0 },
+ 	{ 0x31, 0x29, SDL_SCANCODE_GRAVE, XK_grave, XK_asciitilde, 0, "`", "~", 0 },
+ 	{ 0x0a, 0x02, SDL_SCANCODE_1, XK_1, XK_exclam, 0, "1", "!", 0 },
+-	{ 0x0b, 0x03, SDL_SCANCODE_2, XK_2, XK_ampersand, 0, "2", "@", 0 },
++	{ 0x0b, 0x03, SDL_SCANCODE_2, XK_2, XK_at, 0, "2", "@", 0 },
+ 	{ 0x0c, 0x04, SDL_SCANCODE_3, XK_3, XK_numbersign, 0, "3", "#", 0 },
+ 	{ 0x0d, 0x05, SDL_SCANCODE_4, XK_4, XK_dollar, 0, "4", "$", 0 },
+ 	{ 0x0e, 0x06, SDL_SCANCODE_5, XK_5, XK_percent, 0, "5", "%", 0 },

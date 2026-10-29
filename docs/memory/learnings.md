@@ -2,6 +2,14 @@
 
 Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ promoted to X)`.
 
+- 2026-10-29 — Boxedwine (native x86_64, Wine 11 32-bit) runs iLumina through
+  L1–L6: Director, Valentina, TreeView, the QuickTime 6.3 install, video and QTVR.
+  Two fixes were needed: (1) the Shift+2 keymap bug (`@` typed as `&`),
+  patched; (2) Wine's ddraw GDI renderer, otherwise QuickTime asks for a GL
+  window that doesn't exist. (→ web/patches, make-overlay.sh, test matrix)
+- 2026-10-29 — Under Boxedwine, `wine cmd /c run.bat` doesn't start in
+  /home/username. Launch batch files by absolute path (`C:\run.bat`).
+
 - 2026-10-28 — **Apple Silicon conclusion:** Rosetta for Linux (Docker Desktop on
   a Mac M4) can't run 32-bit compatibility-mode code inside a 64-bit process.
   `tools/wow64-probe/compat32` aborts with `rosetta error: invalid gdt selector

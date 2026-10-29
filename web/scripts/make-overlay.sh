@@ -35,10 +35,14 @@ chmod -R u+w "$APP"
 printf '%s' '[#applicationPath: "C:\Program Files\iLuminaPO\", #Full: -1, #DVDOrCD: #cd, #DvDDrive: "", #CDDrive: "D:\", #edition: "Gold", #version: 2.50, #installRanFromApp: 0]' \
   > "$APP/iLuminaInfo.txt"
 
+# DirectDraw through Wine's GDI renderer: QuickTime otherwise asks for an
+# OpenGL window, which fails without GPU/GLX ("Couldn't find matching GLX
+# visual") and the web build has no 3D anyway.
 # First run: the original QuickTime 6.3 installer, clicked through once by the
 # user (state persists: IndexedDB on the web, /state on native). Then iLumina.
 printf '%s\r\n' \
   '@echo off' \
+  'reg add "HKCU\Software\Wine\Direct3D" /v renderer /d gdi /f >nul' \
   'if not exist "C:\windows\system32\QuickTime.qts" (' \
   '  cd /d "C:\Program Files\iLuminaPO\ThirdParty\QuickTime"' \
   '  start /wait QuickTimeInstaller.exe' \
@@ -48,8 +52,11 @@ printf '%s\r\n' \
   > "$STAGE/home/username/run.bat"
 # Layers 3-5 of the test plan: start iLumina WITHOUT installing QuickTime, to
 # separate Director/Xtra problems from QuickTime problems.
-printf '%s\r\n' '@echo off' 'cd /d "C:\Program Files\iLuminaPO"' 'start /wait iLumina.exe' \
+printf '%s\r\n' '@echo off' 'reg add "HKCU\Software\Wine\Direct3D" /v renderer /d gdi /f >nul' 'cd /d "C:\Program Files\iLuminaPO"' 'start /wait iLumina.exe' \
   > "$STAGE/home/username/run-noqt.bat"
+# Also at C:\ so they can be started by absolute path (wine's cmd doesn't
+# start in /home/username): /bin/wine cmd /c C:\run.bat
+cp "$STAGE/home/username/run.bat" "$STAGE/home/username/run-noqt.bat" "$STAGE/home/username/.wine/drive_c/"
 
 if [[ $MODE == zip ]]; then
   echo "zipping overlay (stored, the media is already compressed)"

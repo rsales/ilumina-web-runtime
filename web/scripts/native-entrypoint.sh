@@ -15,7 +15,7 @@ install() {
 
 boxed() {  # run iLumina's launcher inside Boxedwine
   exec boxedwine -root "$ROOT" -zip "$BOXEDWINE_FS" -resolution "$ILUMINA_RES" \
-    -title iLumina /bin/wine cmd /c run.bat
+    -title iLumina /bin/wine cmd /c "C:\\run.bat"
 }
 
 case "${1:-run}" in

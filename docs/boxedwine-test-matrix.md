@@ -6,12 +6,12 @@ Stop at the first ❌: the layers after it are not conclusive.
 
 | Layer | What to check | native x86_64 | native Mac M4 (arm64) | wasm Chrome Mac M4 |
 |---|---|---|---|---|
-| L1 emulator | `hello32gui.exe` message box; `C:\boxedwine-probe.txt` written | ⏳ | ⏳ | ⏳ |
-| L2 Boxedwine's Wine | notepad opens and accepts typing | ⏳ | ⏳ | ⏳ |
-| L3 Director | `iLumina.exe` splash ("CARREGANDO…"), registration dialog | ⏳ | ⏳ | ⏳ |
-| L4 content | Home screen, Bíblia → Gênesis text | ⏳ | ⏳ | ⏳ |
-| L5 Xtras | book tree (TreeView), Bible text (Valentina), Mui dialogs | ⏳ | ⏳ | ⏳ |
-| L6 QuickTime | 6.3 wizard completes; Animações plays with sound; QTVR pans | ⏳ | ⏳ | ⏳ |
+| L1 emulator | `hello32gui.exe` message box; `C:\boxedwine-probe.txt` written | ✅ | ⏳ | ⏳ |
+| L2 Boxedwine's Wine | notepad opens and accepts typing | ✅ | ⏳ | ⏳ |
+| L3 Director | `iLumina.exe` splash ("CARREGANDO…"), registration dialog | ✅ (with patch 0001) | ⏳ | ⏳ |
+| L4 content | Home screen, Bíblia → Gênesis text | ✅ | ⏳ | ⏳ |
+| L5 Xtras | book tree (TreeView), Bible text (Valentina), Mui dialogs | ✅ | ⏳ | ⏳ |
+| L6 QuickTime | 6.3 wizard completes; Animações plays with sound; QTVR pans | ⚠️ installs, video plays, QTVR pans; needs GDI renderer; sound not tested | ⏳ | ⏳ |
 | L7 performance | time to Home (s); tab memory (GB); video fps / QTVR smoothness | — | — | ⏳ |
 
 ## Environment details (fill in)
@@ -22,3 +22,24 @@ Stop at the first ❌: the layers after it are not conclusive.
 - Overlay size: ilumina.zip = 1.9 GB (full install layout)
 
 ## Notes / errors
+
+### native x86_64 (sandbox, 2 vCPU, Xvfb), 2026-10-29
+
+- **L1–L2**: OK at the first try.
+- **L3**: registration rejected every e-mail. Cause: Boxedwine's US keymap
+  maps Shift+2 to `&`, so `@` can't be typed. Fixed with
+  `web/patches/0001-xkeyboard-shift-2-is-at.patch` (to report upstream).
+- **L4–L5**: Home, Bible book tree, Gênesis introduction text and the timeline
+  all render correctly. About 2 minutes from launch to the registration dialog
+  on this machine.
+- **L6**: the original QuickTime 6.3 wizard installs (`QuickTime.qts` in
+  system32). The fixed-base 0x400000 exe loads fine, unlike QEMU (ADR 0006).
+  After installing, iLumina hung at "CARREGANDO…" with `Couldn't find
+  matching GLX visual`. Fixed by forcing Wine's DirectDraw **GDI renderer**
+  (`HKCU\Software\Wine\Direct3D\renderer=gdi`, now in `run.bat`). After that:
+  the animation "Jesus Ressuscita dos Mortos" plays with captions advancing,
+  and QTVR "Pináculo do Templo" pans by dragging.
+- Known app issue reproduced: opening a top-bar dropdown menu hangs the app
+  (with Wine 9 it showed "Index out of range"). Workaround: the Home/hub buttons.
+- Sound was not tested (`-nosound` in the sandbox).
+

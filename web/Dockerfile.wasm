@@ -20,6 +20,9 @@ ADD https://github.com/danoon2/Boxedwine.git#${BOXEDWINE_COMMIT} /
 FROM emscripten/emsdk:${EMSDK_VERSION} AS build
 ARG BOXEDWINE_TARGET=multiThreadedJit
 COPY --from=boxedwine-src / /src
+# Local fixes on top of the pinned commit (see patches/README.md).
+COPY patches/ /patches/
+RUN cd /src && for p in /patches/*.patch; do echo "applying $p"; git apply "$p"; done
 WORKDIR /src/project/emscripten
 RUN make "$BOXEDWINE_TARGET" JOBS="$(nproc)" \
  && dir="$(ls -d Build/* | head -1)" && mkdir -p /out \
