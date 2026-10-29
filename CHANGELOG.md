@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Experiment branch `experiment/boxedwine` (ADR 0007): Boxedwine WebAssembly
+  and native builds, overlay packer, layered test plan L1–L7.
 - Canonical documentation in `docs/`: use cases, architecture decision
   records, runbooks, and project memory (handoff + learnings).
 - `AGENTS.md` (with `CLAUDE.md` pointing to it): objective, method, negative
