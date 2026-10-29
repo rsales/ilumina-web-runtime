@@ -49,6 +49,11 @@ prompts (simulated by re-pointing the `D:` symlink). A full install:
 
 ## Known issues / notes
 
+- **Original vendor guidance** (see [history.md](history.md)): QuickTime 7
+  breaks multi-node QTVR, so stay on 6.x. Animations are Sorenson Video and
+  *Excursões Virtuais* are MPEG-4. On slow CPUs, frame drops with audio kept
+  in sync are the original behaviour.
+
 - **Intermittent menu script error.** Choosing an entry from the top-bar
   dropdowns intermittently raises `Index out of range`. It was not seen in
   a bare-Wine session (no virtual desktop, no Xpra), so suspects are the

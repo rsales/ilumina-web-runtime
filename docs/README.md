@@ -17,7 +17,8 @@ the history, and they can't see what happened in the previous session.
 | 3 | [compatibility.md](compatibility.md) | Before you assume a feature works, or when something breaks |
 | 4 | [decisions/](decisions/README.md) | Before you propose "why not just use X?" — it may already have been decided |
 | 5 | [runbooks/](runbooks/) | When you need to *do* something: run, debug, re-measure the installer |
-| 6 | [memory/](memory/README.md) | At the start and end of every work session: handoff and learnings |
+| 6 | [history.md](history.md) | To know what the original product was, its 2005 requirements and the publisher's own media FAQ |
+| 7 | [memory/](memory/README.md) | At the start and end of every work session: handoff and learnings |
 
 ## What lives where
 

@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `docs/history.md`: product history, 2005 system requirements and the
+  publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision
   records, runbooks, and project memory (handoff + learnings).
 - `AGENTS.md` (with `CLAUDE.md` pointing to it): objective, method, negative
