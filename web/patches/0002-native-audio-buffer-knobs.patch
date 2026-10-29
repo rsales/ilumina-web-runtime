@@ -1,0 +1,91 @@
+From: iLumina Web Runtime
+Subject: [PATCH] sdl audio: env knobs for native buffer, period and guest reserve
+
+Native builds queue at most 125 ms and let the guest see every queued
+byte, so Wine OSS writes only one or two periods ahead. When the SDL output
+is a PulseAudio server streamed elsewhere (Xpra), scheduling jitter then
+causes frequent underruns. Mirrors the reserve idea used by the web build.
+All knobs are opt-in; unset means upstream behaviour.
+---
+diff --git a/platform/sdl/kdspaudio.cpp b/platform/sdl/kdspaudio.cpp
+index dddf89d..1aaf51c 100644
+--- a/platform/sdl/kdspaudio.cpp
++++ b/platform/sdl/kdspaudio.cpp
+@@ -21,6 +21,7 @@
+ #include "kdspaudio_math.h"
+ #include <SDL.h>
+ #include <algorithm>
++#include <cstdlib>
+ #include "../../source/kernel/devs/oss.h"
+ #include "../../source/server/localserver.h"
+ #ifdef BOXEDWINE_LOCAL_SERVER
+@@ -29,6 +30,28 @@
+ 
+ #define DSP_BUFFER_SIZE (1024*32)
+ 
++#ifndef __EMSCRIPTEN__
++// Native audio tuning knobs (unset = upstream behaviour). Useful when the
++// SDL output is not a local sound card but e.g. a PulseAudio server that is
++// streamed elsewhere (Xpra), where scheduling jitter causes underruns.
++//   BOXEDWINE_AUDIO_PERIOD_FRAMES  SDL period in frames        (default 1024)
++//   BOXEDWINE_AUDIO_BUFFER_MS      max audio queued to SDL     (default 125)
++//   BOXEDWINE_AUDIO_RESERVE_MS     queued audio hidden from the guest, so it
++//                                  writes that much further ahead (default 0)
++static U32 audioEnvU32(const char* name, U32 def, U32 maxValue) {
++	const char* value = getenv(name);
++	if (!value || !*value) {
++		return def;
++	}
++	long v = strtol(value, nullptr, 10);
++	if (v <= 0) {
++		return def;
++	}
++	return v > (long)maxValue ? maxValue : (U32)v;
++}
++#define DSP_NATIVE_MAX_BUFFER_SIZE (1024*256)
++#endif
++
+ #ifdef __EMSCRIPTEN__
+ extern "C" {
+     int bw_audio_available();
+@@ -48,6 +71,9 @@ public:
+ 		this->want.channels = 1;
+ 		this->want.freq = 11025;
+ 		this->want.samples = KDspAudioMath::getRequestedSdlPeriodFrames();
++#ifndef __EMSCRIPTEN__
++		this->want.samples = (Uint16)audioEnvU32("BOXEDWINE_AUDIO_PERIOD_FRAMES", this->want.samples, 16384);
++#endif
+ 		this->got.channels = 1;
+ 		this->got.freq = 11025;
+ 		this->got.samples = this->want.samples;
+@@ -102,7 +128,14 @@ public:
+ #ifdef __EMSCRIPTEN__
+ 		return this->getGuestQueuedAudioSizeWant();
+ #else
+-		return this->getQueuedAudioSizeWant();
++		U32 queued = this->getQueuedAudioSizeWant();
++		static const U32 reserveMs = audioEnvU32("BOXEDWINE_AUDIO_RESERVE_MS", 0, 1000);
++		if (reserveMs && KSystem::soundEnabled) {
++			U32 frameSize = bytesPerSampleWant() * this->want.channels;
++			U32 reserve = KDspAudioMath::getAlignedDurationBytes(bytesPerSecondWant(), reserveMs, frameSize ? frameSize : 1);
++			queued = queued > reserve ? queued - reserve : 0;
++		}
++		return queued;
+ #endif
+ 	}
+ 	U32 getBufferCapacity(U32 maxFragments = 0) override {
+@@ -140,6 +173,14 @@ public:
+ 			return KDspAudioMath::getWorkletBufferLayout(this->want.freq,
+ 				bytesPerSampleWant() * this->want.channels).capacityBytes;
+ 		}
++#endif
++#ifndef __EMSCRIPTEN__
++		static const U32 bufferMs = audioEnvU32("BOXEDWINE_AUDIO_BUFFER_MS", 0, 1000);
++		if (bufferMs) {
++			U32 frameSize = bytesPerSampleWant() * this->want.channels;
++			U32 bytes = KDspAudioMath::getAlignedDurationBytes(bytesPerSecondWant(), bufferMs, frameSize ? frameSize : 1);
++			return std::min((U32)DSP_NATIVE_MAX_BUFFER_SIZE, std::max(bytes, getFragmentSize()));
++		}
+ #endif
+ 		return KDspAudioMath::getWriteCapacity(bytesPerSecondWant(), getFragmentSize(), DSP_BUFFER_SIZE);
+ 	}

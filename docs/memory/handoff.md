@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-10-28. Overwrite this file at the end of each session._
+_Last updated: 2026-10-29. Overwrite this file at the end of each session._
 
 ## State
 
@@ -12,12 +12,14 @@ _Last updated: 2026-10-28. Overwrite this file at the end of each session._
 ## Active experiment
 
 Branch `experiment/boxedwine` (ADR 0007, accepted for experimentation):
-Boxedwine (x86 emulator + Wine 11 in WebAssembly) as a browser runtime.
-Scaffold in `web/`: wasm build, native test bench, overlay packer, L1 probe,
-layered launcher. Native image builds on x86_64. **Not run yet:** needs
-`TinyCore15Wine11.0.zip` (boxedwine.org, which the sandbox can't reach).
-Next: fill `docs/boxedwine-test-matrix.md` L1 → L7.
-`experiment/wine11-wow64` is kept as history (ADR 0006).
+Boxedwine (x86 emulator + Wine 11) as a runtime. **Native arm64 on the Mac
+mini M4 runs iLumina** (Home, Extras, Bíblia, Excursões Virtuais video) with
+no Rosetta/QEMU. Open issue: **audio stutters** on the native Xpra path.
+Patch `web/patches/0002` + defaults in `web/scripts/native-entrypoint.sh`
+enlarge Boxedwine's audio queue and hide a 200 ms reserve from Wine; retest
+pending on the M4 (knobs overridable via env, see `web/compose.yaml`).
+Then: QTVR on M4, wasm build + browser test (uses AudioWorklet, no Xpra hop),
+L7 metrics, ADR 0007 decision. `experiment/wine11-wow64` kept as history.
 
 ## Next steps (in priority order)
 

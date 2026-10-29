@@ -14,8 +14,19 @@ install() {
 }
 
 boxed() {  # run iLumina's launcher inside Boxedwine
+  # Audio goes Boxedwine -> SDL -> PulseAudio (Xpra) -> browser. Upstream
+  # native defaults keep ~1 Wine period queued, which underruns under the
+  # emulator's jitter; see patches/0002 and docs/boxedwine-test-matrix.md.
+  export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pulseaudio}"
+  export BOXEDWINE_AUDIO_PERIOD_FRAMES="${BOXEDWINE_AUDIO_PERIOD_FRAMES:-2048}"
+  export BOXEDWINE_AUDIO_BUFFER_MS="${BOXEDWINE_AUDIO_BUFFER_MS:-400}"
+  export BOXEDWINE_AUDIO_RESERVE_MS="${BOXEDWINE_AUDIO_RESERVE_MS:-200}"
+  export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-100}"
+  # The guest's fixme spam (mountmgr ioctl, once per CD read) costs emulated
+  # CPU and competes with audio; silence it unless WINEDEBUG is set.
+  log "audio: period=${BOXEDWINE_AUDIO_PERIOD_FRAMES} buffer=${BOXEDWINE_AUDIO_BUFFER_MS}ms reserve=${BOXEDWINE_AUDIO_RESERVE_MS}ms pulse=${PULSE_LATENCY_MSEC}ms"
   exec boxedwine -root "$ROOT" -zip "$BOXEDWINE_FS" -resolution "$ILUMINA_RES" \
-    -title iLumina /bin/wine cmd /c "C:\\run.bat"
+    -title iLumina -env "WINEDEBUG=${WINEDEBUG:--all}" /bin/wine cmd /c "C:\\run.bat"
 }
 
 case "${1:-run}" in
@@ -31,7 +42,9 @@ case "${1:-run}" in
       --exit-with-children=yes --pulseaudio=yes --speaker=on --microphone=off \
       --dbus-launch= --dbus-proxy=no --dbus-control=no --mdns=no --notifications=no \
       --system-tray=no --webcam=no --printing=no --file-transfer=no --sharing=no \
-      --log-dir=/state ;;
+      ${XPRA_SPEAKER_CODEC:+--speaker-codec="$XPRA_SPEAKER_CODEC"} \
+      --speed="${XPRA_SPEED:-90}" --quality="${XPRA_QUALITY:-60}" \
+      --log-dir=/state ${XPRA_EXTRA_ARGS:-} ;;
   shell) exec bash ;;
   *) exec "$@" ;;
 esac

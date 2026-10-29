@@ -9,6 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 - Experiment branch `experiment/boxedwine` (ADR 0007): Boxedwine WebAssembly
   and native builds, overlay packer, layered test plan L1–L7.
+- Boxedwine native: audio buffer patch (0002) and tunable audio/Xpra env
+  knobs to reduce audio stutter.
 - Canonical documentation in `docs/`: use cases, architecture decision
   records, runbooks, and project memory (handoff + learnings).
 - `AGENTS.md` (with `CLAUDE.md` pointing to it): objective, method, negative
