@@ -15,6 +15,9 @@ services:
       - ${BOXEDWINE_DATA_DIR:?set BOXEDWINE_DATA_DIR}/TinyCore15Wine11.0.zip:/opt/boxedwine/TinyCore15Wine11.0.zip:ro
       - boxedwine-state:/state
     shm_size: 512m
+    # Boxedwine exits when iLumina closes (or crashes); come back with run.bat,
+    # which skips the QuickTime installer once QuickTime.qts exists.
+    restart: unless-stopped
 
   wasm:
     build: { context: ., dockerfile: Dockerfile.wasm }

@@ -23,6 +23,20 @@ Stop at the first ❌: the layers after it are not conclusive.
 
 ## Notes / errors
 
+### native Mac mini M4 (arm64 container, Docker Desktop), 2026-10-29
+
+- The arm64 image builds (Boxedwine compiled natively in ~75 s) and runs
+  **without Rosetta or QEMU**: Boxedwine's own CPU emulator executes the 32-bit
+  x86 code that failed in ADR 0006.
+- L1–L3 implied: Wine starts and the **QuickTime 6.3 wizard is shown and usable
+  in the browser** (Xpra, audio stream active).
+- At the end of the QuickTime install, the installer opens an Explorer window
+  for the Start-menu folder (`IShellBrowser` fixmes), and Boxedwine
+  **segfaults (exit 139)**. On x86_64 the same Explorer window froze the
+  screen. Suspect: Wine's explorer/shell browser under Boxedwine, not iLumina.
+  Pending: check whether `QuickTime.qts` was written before the crash and
+  continue with L4–L6.
+
 ### native x86_64 (sandbox, 2 vCPU, Xvfb), 2026-10-29
 
 - **L1–L2**: OK at the first try.
