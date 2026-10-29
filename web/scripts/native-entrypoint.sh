@@ -19,9 +19,9 @@ boxed() {  # run iLumina's launcher inside Boxedwine
   # emulator's jitter; see patches/0002 and docs/boxedwine-test-matrix.md.
   export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pulseaudio}"
   export BOXEDWINE_AUDIO_PERIOD_FRAMES="${BOXEDWINE_AUDIO_PERIOD_FRAMES:-2048}"
-  export BOXEDWINE_AUDIO_BUFFER_MS="${BOXEDWINE_AUDIO_BUFFER_MS:-400}"
-  export BOXEDWINE_AUDIO_RESERVE_MS="${BOXEDWINE_AUDIO_RESERVE_MS:-200}"
-  export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-100}"
+  export BOXEDWINE_AUDIO_BUFFER_MS="${BOXEDWINE_AUDIO_BUFFER_MS:-300}"
+  export BOXEDWINE_AUDIO_RESERVE_MS="${BOXEDWINE_AUDIO_RESERVE_MS:-120}"
+  export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-60}"
   # The guest's fixme spam (mountmgr ioctl, once per CD read) costs emulated
   # CPU and competes with audio; silence it unless WINEDEBUG is set.
   log "audio: period=${BOXEDWINE_AUDIO_PERIOD_FRAMES} buffer=${BOXEDWINE_AUDIO_BUFFER_MS}ms reserve=${BOXEDWINE_AUDIO_RESERVE_MS}ms pulse=${PULSE_LATENCY_MSEC}ms"

@@ -61,3 +61,15 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - 2026-10-28 — The sandbox egress blocks Docker Hub. The `ubuntu:24.04` base
   was built locally with `debootstrap` + `docker import` for testing.
   Normal machines just pull it.
+
+- **Xpra 3.1 HTML5 audio lag only grows** (2026-10-29). The client never
+  trims its MediaSource buffer, so after any stall sound lags behind the
+  picture for the rest of the session (and keeps playing after a pause).
+  Patched in `web/scripts/patch-xpra-html5-audio.py`. The same client is used
+  by the main Wine runtime.
+- **Chrome on macOS gets Vorbis, not Opus**, from the Xpra 3.1 client
+  (hard-coded blacklist). Override with `?audio_codec=mediasource:opus+mka`.
+- **mountmgr `harddisk_ioctl 70c00` fixme** floods the log on every CD read
+  under Boxedwine. Silenced with `-env WINEDEBUG=-all`; if it still shows,
+  the container runs an old image.
+

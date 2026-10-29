@@ -44,7 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && mkdir -p /state /media/ilumina /opt/boxedwine && chown ilumina:ilumina /state
 COPY --from=build /out/boxedwine /usr/local/bin/boxedwine
 COPY scripts/ /opt/ilumina-web/
-RUN chmod +x /opt/ilumina-web/*.sh
+RUN chmod +x /opt/ilumina-web/*.sh \
+ && python3 /opt/ilumina-web/patch-xpra-html5-audio.py /usr/share/xpra/www/js/Client.js
 ENV ILUMINA_MEDIA=/media/ilumina BOXEDWINE_FS=/opt/boxedwine/TinyCore15Wine11.0.zip \
     ILUMINA_RES=1024x768 XPRA_PORT=14500
 USER ilumina

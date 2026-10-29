@@ -46,7 +46,16 @@ Stop at the first ❌: the layers after it are not conclusive.
   opt-in env knobs (`BOXEDWINE_AUDIO_BUFFER_MS`, `_RESERVE_MS`,
   `_PERIOD_FRAMES`); the native runtime defaults to 400/200/2048 plus
   `PULSE_LATENCY_MSEC=100` and Xpra `--speed=90 --quality=60` to cut encoder
-  CPU. Trade-off: about 0.2 s of extra audio latency. Retest pending.
+  CPU. Trade-off: some extra audio latency. Retest pending.
+- Second report: audio **starts late and keeps playing after the video is
+  paused**. Cause: the Xpra 3.1 HTML5 client appends audio to a MediaSource
+  buffer and never skips ahead, so every stall adds lag for good. Fix:
+  `web/scripts/patch-xpra-html5-audio.py` (applied at image build) jumps to
+  150 ms behind live whenever more than 500 ms is buffered (URL params
+  `audio_max_latency`, `audio_target_latency`). Boxedwine defaults lowered
+  to 300/120 ms, Pulse 60 ms. Verified only that the client loads and plays
+  in headless Chromium (opus); Chrome on macOS is forced to Vorbis by the
+  client's blacklist, try `?audio_codec=mediasource:opus+mka`. Retest pending.
 
 ### native x86_64 (sandbox, 2 vCPU, Xvfb), 2026-10-29
 
