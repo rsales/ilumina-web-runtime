@@ -44,10 +44,17 @@ These are the support answers that bear on this project, in short.
 
 1. **QuickTime 6.3 is required** for animations, virtual tours (*Passeios
    Virtuais*), *Momentos no Tempo* and *Excursões Virtuais*. A "broken film"
-   icon in the media window means QuickTime is missing or too old. The
-   installer asks for a registration number: leave it empty and press Next.
-2. **QuickTime 6.5.2 was the official fallback** when 6.3 misbehaved on a
-   machine.
+   icon in the media window means QuickTime is missing or too old. Without
+   QuickTime the Multimedia module doesn't work in those areas. Other media
+   types (PDFs, photos, maps) go through other components (Acrobat 6 was
+   included).
+   - **QuickTime PRO is not needed.** One installer page offers the paid PRO
+     upgrade and asks for a registration number. Leave it empty and press
+     Next: the bundled 6.3 is the free version. → `install-quicktime.sh`
+     does exactly that (page 7, "Pro registration (left empty)").
+2. **QuickTime 6.5.2 was recommended as an upgrade** (free from Apple at the
+   time) and was the official fallback when 6.3 misbehaved. Apple's download
+   is gone, so the runtime sticks with the 6.3 from the discs.
 3. **QuickTime 7 is incompatible** (FAQ E.17): it doesn't play
    **multi-node QTVR**, so the virtual tours break, and on some machines the
    animations do too. The fix was to uninstall 7 and go back to 6.3, or 6.5
