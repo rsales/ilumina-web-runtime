@@ -14,10 +14,22 @@ fn every_movie_parses_and_all_bytecode_decodes() {
         eprintln!("ILUMINA_DISCS not set; skipping");
         return;
     };
-    let dir = std::path::Path::new(&discs).join("cd1/Program/Files");
+    // `cargo test` runs integration tests from the crate directory, so a
+    // relative path is resolved against the workspace root (`port/`).
+    let discs = std::path::Path::new(&discs);
+    let discs = if discs.is_absolute() {
+        discs.to_path_buf()
+    } else {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(discs)
+    };
+    let dir = discs.join("cd1/Program/Files");
     let mut files = 0;
     let (mut n_members, mut n_scripts, mut n_handlers) = (0, 0, 0);
-    for entry in std::fs::read_dir(&dir).expect("cd1/Program/Files") {
+    for entry in std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e} (ILUMINA_DISCS must hold cd1..cd4)", dir.display()))
+    {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let ext = path

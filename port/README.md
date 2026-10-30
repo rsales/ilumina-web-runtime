@@ -22,11 +22,12 @@ Milestone **M0** (spike). See [docs/port-test-matrix.md](../docs/port-test-matri
 ```sh
 cd port
 cargo test                                    # unit tests (no discs needed)
+cargo build -p rifx --target wasm32-unknown-unknown   # wasm build check
 ILUMINA_DISCS=../discs cargo test             # + structural test over the real movies
 cargo run -p xtask -- inventory ../discs ../work/inventory
 ```
 
-`../discs` holds `cd1`…`cd4`, the same layout as the Wine runtime.
+`ILUMINA_DISCS` points at the folder that holds `cd1`…`cd4` (the same layout as the Wine runtime). A relative path is resolved from `port/`.
 
 ## Rules
 

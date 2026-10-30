@@ -53,3 +53,5 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - 2026-10-28 — The sandbox egress blocks Docker Hub. The `ubuntu:24.04` base
   was built locally with `debootstrap` + `docker import` for testing.
   Normal machines just pull it.
+
+- **`cargo test` runs integration tests from the crate dir** (`port/crates/rifx`), so a relative `ILUMINA_DISCS` used to resolve wrongly (2026-10-30, Mac). The test now resolves relative paths from `port/`.
