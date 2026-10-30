@@ -80,3 +80,10 @@ Desktop.ini
 
 # --- Node (Playwright tests, future landing page) ---------------------------
 node_modules/
+
+# --- Rust port (ADR 0008): build output and derived local data --------------
+# work/: inventories, dumps, decompiled Lingo, spike output (app content)
+# ilumina-data/: media converted from the user's discs by media-prep
+port/target/
+work/
+ilumina-data/

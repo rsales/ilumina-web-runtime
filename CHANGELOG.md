@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Experiment branch `experiment/rust-director` (ADR 0008, which supersedes 0007
+  with the outcome "redirect"): Rust Director MX player, WASM first. M0 so far:
+  the `rifx` crate parses all 29 movies and disassembles all Lingo bytecode,
+  `xtask inventory` exists, and the Valentina and QTVR spikes have started.
 - `docs/history.md`: product history, 2005 system requirements and the
   publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision

@@ -1,6 +1,6 @@
 # 0003 — Ship no content; the user supplies the discs
 
-- Status: Accepted
+- Status: Accepted; amended by 0008 (derived local data: `work/`, `ilumina-data/`, never committed)
 - Date: 2026-10-28
 
 ## Problem

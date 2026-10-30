@@ -1,6 +1,6 @@
 # 0001 — Run the original under Wine instead of recompiling or rewriting it
 
-- Status: Accepted
+- Status: Accepted; amended by 0008 (Wine stays as fallback and oracle; the Director-player path is now being tried)
 - Date: 2026-10-28
 
 ## Problem

@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["crates/rifx", "crates/xtask"]
+
+[workspace.package]
+edition = "2021"
+version = "0.0.1"
+license = "MIT"
+publish = false

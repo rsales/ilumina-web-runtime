@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-10-28. Overwrite this file at the end of each session._
+_Last updated: 2026-10-30. Overwrite this file at the end of each session._
 
 ## State
 
@@ -8,6 +8,30 @@ _Last updated: 2026-10-28. Overwrite this file at the end of each session._
   audio verified in Chromium via Xpra.
 - `.env` auto-fill for registration and activation works mechanically. A
   fake code is rejected as expected. No real code has been tested yet.
+
+## Active experiment
+
+Branch `experiment/rust-director` (ADR 0008): a Rust Director MX player, WASM
+first. Earlier experiments are kept as history:
+
+- `experiment/boxedwine` (ADR 0007, ended as **redirect**). It works on the
+  Mac M4: audio was fixed, but the volume control hangs and QTVR is slow.
+- `experiment/wine11-wow64` (ADR 0006).
+
+M0 status:
+
+- **Parser:** `port/crates/rifx` parses all 29 movies, and all 2,751 handlers
+  disassemble. The inventory runs with `cargo run -p xtask -- inventory`; its
+  output stays in `work/`.
+- **Valentina:** plain and paged. Next is the record→text mapping in `.dat`,
+  then the RA/RC/NTLH text in `.blb`. Fallback: export the tables once through
+  V4MD under Wine.
+- **QTVR:** `NZV.mov` is cubic, with 28 nodes × 6 faces of 768² MPEG-4.
+  ffmpeg decodes the faces. The `smc` hotspot track and the node graph are pending.
+- **Still to do:** try dirplayer-rs on `Home.dxr`, decide on GPL, check the
+  wasm build of `rifx`, and add a manifest hash gate.
+
+See `docs/port-test-matrix.md`.
 
 ## Next steps (in priority order)
 
