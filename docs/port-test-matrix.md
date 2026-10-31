@@ -29,10 +29,23 @@ HOCode has Home's (2 movie, 5 parent, 15 score).
 
 Slices, each with its own check:
 
-1. ⏳ `lingo-vm` core: values (int, float, string, symbol, void, list,
-   prop list, object), stack, locals/params/globals, jumps, arithmetic and
-   comparison, `localcall`/`extcall` to handlers across scripts. Unit tests
-   per opcode.
+1. ✅ `lingo-vm` core (2026-10-31): values (VOID, int, float, string,
+   symbol, lists and property lists by reference, point, rect, script,
+   instance, host refs), stack, params/locals/globals, jumps and repeat,
+   arithmetic and comparison with Lingo's coercions, chunk expressions
+   (get/put/delete, `the last item of`), `localcall`/`extcall`/`objcall`
+   across cast libraries, parent scripts with `new` and `ancestor`, D8
+   chunk references (`s.word[1].delete()`), D4-style `the … of sprite/member`
+   (property-name tables from public research), and a `Host` trait for
+   everything the player provides. Errors carry the handler stack.
+   - 24 unit tests (hand-assembled bytecode decoded by `rifx`).
+   - Disc test: all 446 scripts load and every opcode in the 119,934
+     instructions is implemented.
+   - Disc test: Home's real `prepareMovie` and `startMovie` run nested
+     handlers (`SharedPrepareMovie` → `init` → `PathMgr.new`; `Lite.new` →
+     `dCheck.new` → `GetNameEmailData`) until they need the player:
+     `the applicationPath`, `the moviePath`, BuddyAPI (`baReadIni`,
+     `baSysFolder`), FileIO, Valentina init, prefs. That list is slice 2.
 2. ⏳ Movie events: run `prepareMovie`/`startMovie` of the movie scripts
    across cast libs; log every builtin and Xtra call that is missing.
 3. ⏳ Sprites and behaviors: `beginSprite`, `prepareFrame`, `exitFrame`,

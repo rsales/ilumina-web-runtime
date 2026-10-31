@@ -95,3 +95,14 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   delivered. Before bundling, read the owner's branch head with `git log -1`
   on the linked computer and use it as the base.
 
+- **`return x` is `extcall return`** (2026-10-31): `pusharglistnoret 1;
+  extcall return`, 1,715 times on the discs, often with more code after it
+  (the else branch). It must leave the handler, not call anything.
+- **Deleting a word keeps the space after it.** The original code does
+  `s.word[1].delete()` and then `s.char[1].delete()` to drop that space.
+- **D8 chunk references:** `pushchunkvarref` pushes a reference to a
+  variable; `getPropRef(ref, #word, n)` makes a chunk reference; `delete()`
+  and `count()` act on it and write back to the variable.
+- **Bytecode args are direct indices in D8+** (no ×6/×8 multiplier for
+  locals, params or literals).
+

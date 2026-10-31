@@ -20,7 +20,8 @@ Milestone **M1** (static Home) in progress: bitmaps, shapes, score and text rend
 | `crates/director` | Stage: cast libs, score frames, compositing (bitmaps, shapes, inks, text through a host `Fonts` trait) | ⚠️ native render; browser canvas pending |
 | `crates/xtask` | Local tooling (`verify`, `inventory`, `valentina`, `qtvr`, `bitmaps`, `texts`, `score`, `render`), output to `work/`; fontdue over host fonts | ✅ |
 | `crates/web` | Browser player: the stage behind a hand-written wasm ABI (no wasm-bindgen); page in `port/web/`, fonts from the browser canvas | ⚠️ built on the Mac only |
-| `lingo-vm`, `xtras`, `media-prep` | see ADR 0008 | created when their milestone starts |
+| `crates/lingo-vm` | Lingo bytecode interpreter: values, lists, chunks, handlers, parent scripts, `Host` trait for the player | ✅ core (M2 slice 1); host functions in progress |
+| `xtras`, `media-prep` | see ADR 0008 | created when their milestone starts |
 
 ## Commands
 
@@ -36,6 +37,7 @@ cargo run -p xtask -- qtvr ../discs/cd2/Files/Media/QTVRs/NZV.mov ../work/qtvr
 cargo run -p xtask -- bitmaps ../discs ../work/bitmaps
 cargo run -p xtask -- score ../discs/cd1/Program/Files/Home.dxr 1
 cargo run -p xtask -- texts ../discs ../work/texts
+cargo run -p xtask -- lingo ../discs ../work/lingo        # disassembly per script
 cargo run --release -p xtask -- render ../discs Home.dxr 1 ../work/render/Home-1.png
 cargo run --release -p xtask -- render ../discs Bible.dxr 30 ../work/render/Bible-30.png
 ```

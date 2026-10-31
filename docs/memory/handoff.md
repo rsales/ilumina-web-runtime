@@ -35,6 +35,11 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 1 done (2026-10-31):** `crates/lingo-vm` runs the original
+bytecode; Home's `prepareMovie`/`startMovie` stop at the first player
+function (`the applicationPath`, BuddyAPI, FileIO, Valentina, prefs). Next:
+slice 2, a host that answers those, driven by the recorded list.
+
 **M1 done (2026-10-31):** the browser player runs on the Mac (wasm) and renders
 every module's score frames. **M2 started**: slices in `docs/port-test-matrix.md`;
 `xtask lingo` dumps the disassembly per script to `work/lingo/`.

@@ -26,6 +26,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Port M2 slice 1: `crates/lingo-vm`, a Lingo bytecode interpreter (values,
+  lists, chunks, handlers across cast libs, parent scripts, `Host` trait).
+  Every opcode on the discs is implemented; Home's movie events run until
+  they need player functions.
 - `xtask lingo`: disassembly per script and cast member (with script type)
   to `work/lingo/`, local only. M1 closed; M2 (Lingo VM) planned in slices.
 - Port browser player: `crates/web` (stage behind a hand-written wasm ABI,
