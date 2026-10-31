@@ -228,7 +228,9 @@ impl<'a> DataFile<'a> {
         let width = bytes.len() / n.max(1);
         if width == 0 && bytes.len() * 8 >= n {
             // Boolean fields are packed one bit per record (assumed LSB first).
-            return Ok((0..n).map(|i| ((bytes[i / 8] >> (i % 8)) & 1) as u32).collect());
+            return Ok((0..n)
+                .map(|i| ((bytes[i / 8] >> (i % 8)) & 1) as u32)
+                .collect());
         }
         if !(1..=4).contains(&width) {
             return Err(Error::Format(format!(
