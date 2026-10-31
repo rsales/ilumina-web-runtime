@@ -30,10 +30,16 @@ M0 status:
 - **QTVR ✅:** `port/crates/qtvr` reads the node graph, links, cube view
   limits and the `smc` hotspot maps. All 24 tours parse; Nazaré is checked
   end to end. `xtask qtvr` writes JSON to `work/`.
-- **Still to do (last M0 item):** try dirplayer-rs on `Home.dxr`, decide on GPL, and add a manifest hash gate. (The wasm build of `rifx` and the
+- **M0 done (go).** dirplayer-rs was evaluated and stays a reference only; the license stays MIT (ADR 0008). Old note: and add a manifest hash gate. (The wasm build of `rifx` and the
   disc test pass on the Mac M4.)
 
 See `docs/port-test-matrix.md`.
+
+**Next: M1, static Home.** Decode `BITD` bitmaps, `CLUT` palettes and
+`STXT`/`XMED` text. Parse frame 1 of the `VWSC` score and the `MCsL` cast
+links. Then render the Home stage at 1024×768 into a canvas (WASM), and
+compare it with a Wine screenshot locally (SSIM, in `work/`). Also add the
+manifest hash gate.
 
 ## Next steps (in priority order)
 

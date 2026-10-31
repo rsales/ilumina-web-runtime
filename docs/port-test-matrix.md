@@ -7,7 +7,7 @@ stay in `work/`, never in git.
 
 | Milestone | Gate | Status |
 |---|---|---|
-| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ⚠️ parser ✅, Valentina ✅, QTVR ✅; dirplayer-rs pending |
+| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
 | M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⏳ |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
@@ -149,5 +149,5 @@ the QTVR 2.x atom containers, and includes an `smc ` decoder.
 
 ### Not done in M0 yet ⏳
 
-- **License decision:** MIT with our own engine, or a GPL-3 fork of dirplayer-rs. The owner decides.
+- **License:** decided MIT with our own engine (ADR 0008). dirplayer-rs is a reference only.
 - Hash gate against the manifest inside `xtask`.

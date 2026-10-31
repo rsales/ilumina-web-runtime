@@ -68,6 +68,15 @@ Wine runtime.
   undocumented database format (Valentina). That is the main risk; M0 tests it first.
 - ❌ Fidelity has to be proven screen by screen against the Wine runtime.
 
+## M0 outcome (2026-10-30)
+- **Go.** The movie parser, the Valentina reader and the QTVR reader work on
+  all of the owner's discs, on x86_64 and on the Mac mini M4. Details are in
+  `docs/port-test-matrix.md`.
+- **License: MIT, own engine.** dirplayer-rs (GPL-3) loads all 20 casts
+  with the same member counts as `rifx`. It stays a reading reference and an
+  independent cross-check, and no code is copied from it. Its player was not
+  tried because that needs a browser build.
+
 ## Evidence
 - Inventory of the discs (2026-10-30): 29 Director MX movies (about 14 MB, protected, no
   Lingo source). The Valentina databases are about 200 MB. Most media is already JPG/PDF/MP4;
