@@ -629,7 +629,9 @@ fn score_dump(movie_path: &Path, frame: usize) -> Result<(), Box<dyn std::error:
                     .and_then(|d| {
                         Movie::parse(&d)
                             .ok()
-                            .and_then(|m| members(&m).ok())
+                            .and_then(|m| {
+                                rifx::cast::members_from(&m, l.min_member as u32).ok()
+                            })
                             .map(|c| c.into_iter().flatten().collect())
                     })
                     .unwrap_or_default()
