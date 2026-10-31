@@ -11,6 +11,9 @@ rifx = { path = "../rifx" }
 lingo-vm = { path = "../lingo-vm" }
 valentina = { path = "../valentina" }
 director = { path = "../director" }
+zune-jpeg = "0.5"
 
 [dev-dependencies]
 discs = { path = "../discs" }
+fontdue = "0.9"
+png = "0.17"

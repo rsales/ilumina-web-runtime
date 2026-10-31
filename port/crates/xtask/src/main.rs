@@ -91,6 +91,24 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("play") if args.len() >= 3 => {
+            let root = discs_root(&args[1]);
+            let movie = args[2].clone();
+            let out = args.get(3).map(PathBuf::from).unwrap_or_else(|| {
+                PathBuf::from(format!("work/play/{}.png", movie.trim_end_matches(".dxr")))
+            });
+            // Lingo recursion is native recursion: run on a big stack.
+            let r = std::thread::Builder::new()
+                .stack_size(256 << 20)
+                .spawn(move || play(&root, &movie, &out).map_err(|e| e.to_string()))
+                .unwrap()
+                .join()
+                .unwrap();
+            if let Err(e) = r {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some("score") if args.len() >= 2 => {
             let frame = args.get(2).and_then(|f| f.parse().ok()).unwrap_or(1);
             if let Err(e) = score_dump(Path::new(&args[1]), frame) {
@@ -143,6 +161,9 @@ fn main() {
                 "       xtask bitmaps <discs-dir> [out-dir]      # every bitmap as PNG, local only"
             );
             eprintln!("       xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "       xtask play <discs-dir> <movie> [out.png] # run the movie's startup (Lingo) and render it"
+            );
             eprintln!(
                 "       xtask lingo <discs-dir> [out-dir]        # disassembly per script, local only"
             );
@@ -629,9 +650,7 @@ fn score_dump(movie_path: &Path, frame: usize) -> Result<(), Box<dyn std::error:
                     .and_then(|d| {
                         Movie::parse(&d)
                             .ok()
-                            .and_then(|m| {
-                                rifx::cast::members_from(&m, l.min_member as u32).ok()
-                            })
+                            .and_then(|m| rifx::cast::members_from(&m, l.min_member as u32).ok())
                             .map(|c| c.into_iter().flatten().collect())
                     })
                     .unwrap_or_default()
@@ -675,6 +694,79 @@ impl director::Files for GatedFiles {
             }
         }
     }
+}
+
+struct DiscDir(PathBuf);
+impl player::DiscFiles for DiscDir {
+    fn read(&self, rel: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.0.join(rel)).ok()
+    }
+}
+
+/// Run a movie's startup with the original Lingo and render the stage as
+/// Lingo left it (local inspection only). The registration dialog gets the
+/// owner's own `ILUMINA_REG_*` values when set (never generated, ADR 0005);
+/// without them the run stops at the dialog, as a fresh install would.
+fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest = discs::parse_manifest(discs::ILUMINA_GOLD_250_PTBR)?;
+    let exe = discs::check_file(discs, "cd1/Program/iLumina.exe", &manifest)?;
+    let palette = rifx::bitmap::system_win_palette(&exe).ok_or("System - Win palette not found")?;
+    let paths: Vec<String> = manifest.iter().map(|e| e.path.clone()).collect();
+    let files = GatedFiles {
+        root: discs.to_path_buf(),
+        manifest,
+    };
+    let stage = director::Stage::load(&files, movie, palette)?;
+    let vfs = player::Vfs::new(Box::new(DiscDir(discs.to_path_buf())), paths);
+    let bytes = director::Files::read(&files, movie).ok_or("movie not found")?;
+    let casts = player::cast_files(&bytes, movie)?;
+    let (mut vm, mut host) = player::load_movie(vfs, movie, &casts)?;
+    host.fonts = Box::new(fonts::HostFonts::new());
+    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let mut secrets = Vec::new();
+    if let (Some(name), Some(email)) = (get("ILUMINA_REG_NAME"), get("ILUMINA_REG_EMAIL")) {
+        let cep = get("ILUMINA_REG_CEP").unwrap_or_default();
+        secrets = vec![name.clone(), email.clone(), cep.clone()];
+        host.responder = Box::new(player::mui::Owner { name, email, cep });
+    }
+    let mask = |t: &str| {
+        let mut t = t.to_string();
+        for s in secrets.iter().filter(|s| !s.is_empty()) {
+            t = t.replace(s.as_str(), "<owner>");
+        }
+        t
+    };
+    for (step, r) in player::stage::start_movie(&mut vm, &mut host) {
+        match r {
+            Ok(()) => println!("{step}: OK"),
+            Err(e) => println!("{step}: stopped: {}", mask(&e.to_string())),
+        }
+    }
+    let fonts = fonts::HostFonts::new();
+    let draws = host.draws();
+    let (px, report) = stage.render_draws(&draws, &fonts)?;
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    write_png(
+        out,
+        stage.config.width as usize,
+        stage.config.height as usize,
+        &px,
+    )?;
+    println!(
+        "{movie}: {} sprites drawn, {} skipped -> {}",
+        report.drawn.len(),
+        report.skipped.len(),
+        out.display()
+    );
+    for (n, why) in &report.skipped {
+        println!("  sprite {n}: {why}");
+    }
+    if !host.missing.is_empty() {
+        println!("unanswered: {:?}", host.missing);
+    }
+    Ok(())
 }
 
 /// Composite one score frame of a movie to PNG (local inspection only).

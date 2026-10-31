@@ -170,3 +170,14 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   behavior sets `sprite(n).menuMember` on its own sprite).
 - **Debug prints in tests leak into fixes**: remove scaffolding before
   committing (a `sed` deleting only the matching lines broke the code).
+
+- **Score sprite left/top is the registration point** (the compositor
+  always drew it that way; the run-time state had added the reg point again).
+- **Shape member line byte = line size + 1** ("MouseRollBlocker": unfilled,
+  byte 1, invisible).
+- **Linked media are JPEG and 24-bit BMP** (`Media/ModuleButtons/*.bmp`);
+  `member.width` of a linked member is the file's size.
+- **The welcome text HTML really starts with "BClique"** (the program's own
+  string); don't "fix" it.
+- **Sandbox disk is tight**: build with `CARGO_INCREMENTAL=0`; old Boxedwine
+  trees were removed from the sandbox (`/home/claude/bwroot`, `/tmp/bw`).

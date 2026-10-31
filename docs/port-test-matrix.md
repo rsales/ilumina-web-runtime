@@ -136,8 +136,30 @@ Slices, each with its own check:
    - ✅ Component test: **the whole startup completes** — beginSprite,
      prepareFrame, startMovie, enterFrame, exitFrame of frame 1 (2026-10-31).
      ⏳ Owner run expected to do the same.
-   - Then: `go`, frame labels, `the frame` loop, puppets, and Home frame 1
-     rendered from the run-time sprite state.
+   - ✅ Owner run (2026-10-31): all six startup steps OK with the owner's
+     data, same as the component test.
+   - ✅ Run-time rendering (2026-10-31): `PlayerHost::draws()` turns the
+     sprite state into a draw list for `director::Stage::render_draws`
+     (member, loc, size, ink, colours, run-time text with Lingo's
+     font/size/style/colour, linked media). Linked media decode in Rust
+     (JPEG via zune-jpeg, uncompressed BMP). Sprites show their member at
+     its own size unless the score marks them stretched (ink byte 0x80).
+     `xtask play <discs> Home.dxr` runs the startup (owner's data from
+     `ILUMINA_REG_*`) and writes the PNG; the component test writes one with
+     `ILUMINA_RENDER=<png>`. Home now shows the welcome picture, the module
+     menu bar (BMP buttons), "Estudo Pessoal" under MAIS, the clickable text
+     and the right icon states, close to the Wine reference.
+   - Fixed on the way: score `left/top` is the registration point (was
+     treated as the corner); shapes store line size + 1 (the invisible
+     "MouseRollBlocker" was drawn as a box).
+   - ⚠️ Still different from Wine: the scroll bar's 8-bit art (palette),
+     "Estudo Pessoal" font (XMED runs empty for that member), and Home's
+     module slideshow/rollover (needs the frame loop and the mouse).
+   - The startup reads 58 disc files, 176 MB (every database opened whole,
+     BLOBs included). For the browser: open Valentina BLOBs lazily.
+   - Next: wire `player` into the browser page (fetch the files the run
+     needs, run the startup, draw `draws()`), then the frame loop (`go`,
+     labels, endSprite, stepFrame) and mouse events.
 4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
    page; `go to movie` loads another module.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.

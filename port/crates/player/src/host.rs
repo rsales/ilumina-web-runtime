@@ -244,6 +244,8 @@ pub struct PlayerHost {
     pub fonts: Box<dyn director::text::Fonts>,
     /// `updateStage` calls (the page redraws from the sprite state).
     pub stage_updates: u64,
+    /// Decoded linked images by path (`None` = unreadable).
+    pub images: std::cell::RefCell<HashMap<String, Option<std::rc::Rc<director::Bitmap>>>>,
     /// Mouse position on the stage; off the stage until the page sends one.
     pub mouse: (i64, i64),
 }
@@ -351,6 +353,7 @@ impl PlayerHost {
             mouse: (-1, -1),
             fonts: Box::new(crate::fonts::ApproxFonts),
             stage_updates: 0,
+            images: Default::default(),
         }
     }
 
@@ -490,6 +493,23 @@ impl PlayerHost {
     /// of a sprite showing it (else 10000, no wrapping), the authored styles,
     /// and font/size/style set from Lingo.
     pub fn measure(&self, lib: i64, number: i64) -> Option<(director::text::Measure, i64)> {
+        let st = self.styled_text(lib, number)?;
+        let width = self
+            .sprites
+            .values()
+            .find(|s| s.member == Some((lib, number)))
+            .map(|s| s.width)
+            .filter(|w| *w > 0)
+            .unwrap_or(10_000);
+        Some((
+            director::text::Measure::new(&st, width as f32, self.fonts.as_ref()),
+            width,
+        ))
+    }
+
+    /// A field/text member's current text with its authored styles and the
+    /// font, size and style Lingo set.
+    pub fn styled_text(&self, lib: i64, number: i64) -> Option<rifx::text::StyledText> {
         use rifx::text::{Run, StyledText};
         let m = self.member_info(lib, number)?;
         let text = m.text.clone()?;
@@ -511,8 +531,19 @@ impl PlayerHost {
                 }
             }
         };
+        if st.runs.is_empty() {
+            st.runs.push(Run {
+                start: 0,
+                end: st.text.chars().count(),
+                style: Default::default(),
+            });
+        }
         let get = |k: &str| m.style.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         for r in &mut st.runs {
+            // Regression: `member.color = rgb(…)` was ignored when drawing.
+            if let Some(Value::Color(cr, cg, cb)) = get("color").or_else(|| get("forecolor")) {
+                r.style.color = [cr, cg, cb];
+            }
             if let Some(f) = get("font") {
                 r.style.font = f.to_text();
             }
@@ -530,17 +561,7 @@ impl PlayerHost {
                 r.style.underline = has("underline");
             }
         }
-        let width = self
-            .sprites
-            .values()
-            .find(|s| s.member == Some((lib, number)))
-            .map(|s| s.width)
-            .filter(|w| *w > 0)
-            .unwrap_or(10_000);
-        Some((
-            director::text::Measure::new(&st, width as f32, self.fonts.as_ref()),
-            width,
-        ))
+        Some(st)
     }
 
     /// `charPosToLoc`, `locToCharPos`, `linePosToLocV` on a member.
@@ -692,6 +713,7 @@ impl PlayerHost {
             // Moves and stretches the sprite (⏳ the reg point scales too).
             "rect" => match v {
                 Value::Rect(l, t, r, b) => {
+                    st.stretched = true;
                     st.width = (r - l) as i64;
                     st.height = (b - t) as i64;
                     st.loc = (*l as i64 + reg.0, *t as i64 + reg.1);
@@ -713,8 +735,14 @@ impl PlayerHost {
             "loch" => st.loc.0 = v.to_int(),
             "locv" => st.loc.1 = v.to_int(),
             "locz" => st.loc_z = v.to_int(),
-            "width" => st.width = v.to_int(),
-            "height" => st.height = v.to_int(),
+            "width" => {
+                st.width = v.to_int();
+                st.stretched = true;
+            }
+            "height" => {
+                st.height = v.to_int();
+                st.stretched = true;
+            }
             "visible" | "visibility" => st.visible = v.truthy(),
             "puppet" => st.puppet = v.truthy(),
             "ink" => st.ink = v.to_int(),
@@ -1228,6 +1256,19 @@ impl lingo_vm::Host for PlayerHost {
                     ("name", Some(m)) => Value::Str(m.name),
                     ("type", Some(m)) => Value::Symbol(m.kind),
                     ("type", None) => Value::sym("empty"),
+                    // Linked media: the size of the file Lingo pointed it at.
+                    ("width" | "height" | "rect", Some(m))
+                        if m.kind == "bitmap"
+                            && m.file_name.is_some()
+                            && self.linked_image(m.lib as i64, m.number as i64).is_some() =>
+                    {
+                        let b = self.linked_image(m.lib as i64, m.number as i64).unwrap();
+                        match lname.as_str() {
+                            "width" => Value::Int(b.width as i64),
+                            "height" => Value::Int(b.height as i64),
+                            _ => Value::Rect(0.0, 0.0, b.width as f64, b.height as f64),
+                        }
+                    }
                     ("text", Some(MemberInfo { text: Some(t), .. })) => Value::Str(t),
                     ("height" | "width" | "linecount", Some(m))
                         if matches!(m.kind.as_str(), "field" | "text") && m.text.is_some() =>
@@ -1886,6 +1927,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(h.to_int(), 22);
+        host.members[0]
+            .style
+            .push(("color".into(), Value::Color(1, 2, 3)));
+        let st = host.styled_text(1, 1).unwrap();
+        assert_eq!(st.runs[0].style.color, [1, 2, 3]);
+        assert_eq!(st.runs[0].style.size, 10);
         let c = host
             .call(&mut vm, "locToCharPos", &[m, Value::Point(0.0, 15.0)])
             .unwrap()

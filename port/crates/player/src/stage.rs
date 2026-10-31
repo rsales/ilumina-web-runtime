@@ -24,12 +24,16 @@ pub struct SpriteState {
     pub blend: i64,
     pub visible: bool,
     pub puppet: bool,
+    /// Drawn at `width`×`height` rather than the member's own size.
+    pub stretched: bool,
     pub fore_color: i64,
     pub back_color: i64,
     pub loc_z: i64,
     pub cursor: Value,
     /// Behavior instances, in the order the author attached them.
     pub instances: Vec<Value>,
+    /// The score's record (colours, kind) the run-time state started from.
+    pub score: Option<rifx::score::Sprite>,
     /// Properties of an Xtra sprite (OSControl, TreeView…), as set by Lingo.
     pub xtra_props: Vec<(String, Value)>,
 }
@@ -78,14 +82,11 @@ pub fn begin_frame(
             continue; // already on stage
         }
         let member = (sp.member != 0).then_some((sp.cast_lib as i64, sp.member as i64));
-        let reg = member
-            .and_then(|(l, m)| host.member_info(l, m))
-            .and_then(|m| m.bitmap)
-            .map(|b| (b.2, b.3))
-            .unwrap_or((0, 0));
         let mut st = SpriteState {
             member,
-            loc: (sp.left as i64 + reg.0, sp.top as i64 + reg.1),
+            // The score stores the registration point's position.
+            // Regression: it was taken as the top-left corner (+ reg point).
+            loc: (sp.left as i64, sp.top as i64),
             width: sp.width as i64,
             height: sp.height as i64,
             ink: sp.ink as i64,
@@ -94,6 +95,8 @@ pub fn begin_frame(
             fore_color: sp.fore as i64,
             back_color: sp.back as i64,
             loc_z: n as i64,
+            score: Some(sp.clone()),
+            stretched: sp.stretch,
             ..Default::default()
         };
         for iv in score.intervals_at(frame).filter(|i| i.sprite == n) {

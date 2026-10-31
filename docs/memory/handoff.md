@@ -35,6 +35,13 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 3, render (2026-10-31):** owner run: whole startup OK. The
+run-time stage renders (`host.draws()` → `Stage::render_draws`), incl.
+linked JPEG/BMP; `xtask play <discs> Home.dxr` (owner's `ILUMINA_REG_*`)
+writes `work/play/Home.png`. Home looks close to the Wine reference. Next:
+the browser page runs the player (needs ~176 MB of files: lazy BLOBs), then
+the frame loop and mouse.
+
 **M2 slice 3, latest (2026-10-31):** text measuring (`director::text::Measure`,
 `player::fonts::ApproxFonts`) unblocked "Single Scrollbar"; in the component
 test Home's whole startup (frame 1: beginSprite → exitFrame) completes.

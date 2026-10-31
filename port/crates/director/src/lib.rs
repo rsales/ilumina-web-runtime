@@ -75,6 +75,16 @@ pub fn config(movie: &Movie) -> Result<Config, Error> {
     })
 }
 
+/// One sprite to draw, with optional run-time replacements.
+#[derive(Clone, Debug)]
+pub struct Draw {
+    pub sprite: Sprite,
+    /// Text set by Lingo (replaces the member's).
+    pub text: Option<StyledText>,
+    /// Image of linked media (replaces the member's bitmap).
+    pub image: Option<std::rc::Rc<Bitmap>>,
+}
+
 /// A cast library with its members, loaded from the movie or an external cast.
 pub struct LoadedCast {
     pub lib: CastLib,
@@ -216,13 +226,34 @@ impl Stage {
 
     /// Composite score frame `frame` (1-based) into an RGBA buffer.
     pub fn render(&self, frame: usize, fonts: &dyn Fonts) -> Result<(Vec<u8>, FrameReport), Error> {
+        let draws: Vec<Draw> = match &self.score {
+            Some(score) => score
+                .sprites(frame)?
+                .into_iter()
+                .map(|sprite| Draw {
+                    sprite,
+                    text: None,
+                    image: None,
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        self.render_draws(&draws, fonts)
+    }
+
+    /// Composite sprites in the given order (back to front). A `Draw` may
+    /// carry run-time text or an image (linked media) that replace the
+    /// member's own.
+    pub fn render_draws(
+        &self,
+        draws: &[Draw],
+        fonts: &dyn Fonts,
+    ) -> Result<(Vec<u8>, FrameReport), Error> {
         let (w, h) = (self.config.width as usize, self.config.height as usize);
         let mut canvas = Canvas::new(w, h, self.config.stage_color);
         let mut report = FrameReport::default();
-        let Some(score) = &self.score else {
-            return Ok((canvas.px, report));
-        };
-        for s in score.sprites(frame)? {
+        for d in draws {
+            let s = d.sprite.clone();
             let kind = self
                 .cast(s.cast_lib)
                 .and_then(|c| c.member(s.member))
@@ -245,7 +276,11 @@ impl Stage {
                 kind,
                 Some(MemberType::Text | MemberType::Field | MemberType::Xtra)
             ) {
-                match self.text(s.cast_lib, s.member)? {
+                let text = match &d.text {
+                    Some(t) => Some(t.clone()),
+                    None => self.text(s.cast_lib, s.member)?,
+                };
+                match text {
                     Some(t) => {
                         let a = if s.blend > 0 && s.blend < 100 {
                             255 * s.blend as u32 / 100
@@ -264,6 +299,11 @@ impl Stage {
                         .skipped
                         .push((s.number, format!("{:?} without text", kind.unwrap()))),
                 }
+                continue;
+            }
+            if let Some(b) = &d.image {
+                canvas.draw(b, &s);
+                report.drawn.push(s.number);
                 continue;
             }
             match self.bitmap(s.cast_lib, s.member)? {
@@ -373,6 +413,7 @@ pub fn sprite_color(s: &Sprite, fore: bool, palette: &Palette) -> [u8; 3] {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Bitmap {
     pub width: usize,
     pub height: usize,
@@ -417,7 +458,9 @@ impl Canvas {
             255
         };
         let (l, t, w, h) = (s.left as i64, s.top as i64, s.width as i64, s.height as i64);
-        let lw = sh.line.max(1) as i64;
+        // The file stores line size + 1: 1 means no line (an unfilled shape
+        // with line 1 is invisible, like iLumina's "MouseRollBlocker").
+        let lw = sh.line.saturating_sub(1) as i64;
         match sh.kind {
             4 => {
                 // Line from one corner to the opposite; direction 6 = rising.
@@ -429,7 +472,7 @@ impl Canvas {
                     } else {
                         t + i * h / n
                     };
-                    for k in 0..lw {
+                    for k in 0..lw.max(1) {
                         self.put(x, y + k, c, a);
                     }
                 }
@@ -446,7 +489,7 @@ impl Canvas {
                         let (dx, dy) = ((x as f64 + 0.5 - cx) / rx, (y as f64 + 0.5 - cy) / ry);
                         let d = dx * dx + dy * dy;
                         let inner = (1.0 - lw as f64 / rx.min(ry)).powi(2);
-                        if d <= 1.0 && (sh.filled || d >= inner) {
+                        if d <= 1.0 && (sh.filled || (lw > 0 && d >= inner)) {
                             self.put(x, y, c, a);
                         }
                     }
@@ -456,7 +499,7 @@ impl Canvas {
                 for y in t..t + h {
                     for x in l..l + w {
                         let edge = x < l + lw || x >= l + w - lw || y < t + lw || y >= t + h - lw;
-                        if sh.filled || edge {
+                        if sh.filled || (lw > 0 && edge) {
                             self.put(x, y, c, a);
                         }
                     }
@@ -527,10 +570,31 @@ mod tests {
             height: h,
             width: w,
             blend: 0,
+            stretch: false,
             color_flag: 0,
             fore_rgb: [0; 3],
             back_rgb: [0; 3],
         }
+    }
+
+    #[test]
+    fn unfilled_shape_with_line_byte_1_is_invisible() {
+        // Regression: Home's "MouseRollBlocker" (unfilled, line byte 1) was
+        // drawn as a black box.
+        let mut c = Canvas::new(4, 4, [255, 255, 255]);
+        let s = sprite(0, 0, 4, 4, 0);
+        let mut sh = Shape {
+            kind: 1,
+            filled: false,
+            line: 1,
+            direction: 0,
+        };
+        c.shape(&sh, &s, &[[0; 3]; 256]);
+        assert!(c.px.chunks(4).all(|p| p[..3] == [255, 255, 255]));
+        sh.line = 2; // line size 1
+        c.shape(&sh, &s, &[[0; 3]; 256]);
+        assert_eq!(&c.px[0..3], &[0, 0, 0]);
+        assert_eq!(&c.px[(4 + 1) * 4..(4 + 1) * 4 + 3], &[255, 255, 255]);
     }
 
     #[test]

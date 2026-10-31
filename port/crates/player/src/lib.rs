@@ -7,6 +7,7 @@ pub mod binaryio;
 pub mod fonts;
 pub mod host;
 pub mod mui;
+pub mod render;
 pub mod stage;
 pub mod v4md;
 pub mod vfs;

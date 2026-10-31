@@ -47,6 +47,9 @@ pub struct Sprite {
     pub height: u16,
     pub width: u16,
     pub blend: u8,
+    /// The author resized the sprite (ink byte 0x80); otherwise it shows its
+    /// member at the member's size.
+    pub stretch: bool,
     /// D7+ RGB colours (used when `color_flag` says so) — else palette indices `fore`/`back`.
     pub color_flag: u8,
     pub fore_rgb: [u8; 3],
@@ -232,7 +235,8 @@ impl Score {
             let rec = &f[ch * self.record_size..(ch + 1) * self.record_size];
             let mut r = Reader::new(rec, Endian::Big);
             let kind = r.u8()?;
-            let ink = r.u8()? & 0x3f;
+            let ink_raw = r.u8()?;
+            let ink = ink_raw & 0x3f;
             let fore = r.u8()?;
             let back = r.u8()?;
             let cast_lib = r.u16()?;
@@ -266,6 +270,7 @@ impl Score {
                 height,
                 width,
                 blend,
+                stretch: ink_raw & 0x80 != 0,
                 color_flag: (color_code >> 4) & 3,
                 fore_rgb: [fore, fg, fb],
                 back_rgb: [back, bg, bb],

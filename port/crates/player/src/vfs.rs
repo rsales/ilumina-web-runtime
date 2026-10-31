@@ -37,6 +37,9 @@ pub struct Vfs {
     /// program that rewrites a few header bytes of a large media file):
     /// lower-case path → (offset, bytes), applied in order on read.
     patches: HashMap<String, Vec<(usize, Vec<u8>)>>,
+    /// Disc files read so far (manifest path → size): what a browser page
+    /// must have fetched for the same run.
+    pub reads: std::cell::RefCell<BTreeMap<String, usize>>,
 }
 
 fn norm(p: &str) -> String {
@@ -56,6 +59,7 @@ impl Vfs {
             overlay: BTreeMap::new(),
             deleted: Vec::new(),
             patches: HashMap::new(),
+            reads: Default::default(),
         };
         v.write(
             &format!("{APP_DIR}iLuminaInfo.txt"),
@@ -97,7 +101,9 @@ impl Vfs {
         if self.deleted.contains(&key) {
             return None;
         }
-        let mut b = self.disc.read(&self.resolve(win)?)?;
+        let rel = self.resolve(win)?;
+        let mut b = self.disc.read(&rel)?;
+        self.reads.borrow_mut().insert(rel, b.len());
         for (at, bytes) in self.patches.get(&key).into_iter().flatten() {
             apply(&mut b, *at, bytes);
         }

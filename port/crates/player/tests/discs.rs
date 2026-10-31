@@ -2,6 +2,12 @@
 //! movie events with the real host. Prints counts and names, never content.
 
 use lingo_vm::{Value, Vm};
+
+// The native fonts of `xtask` (fontdue over installed fonts), for the
+// optional render of the component path.
+#[allow(dead_code)]
+#[path = "../../xtask/src/fonts.rs"]
+mod fonts;
 use player::{DiscFiles, PlayerHost, Vfs};
 use std::path::{Path, PathBuf};
 
@@ -278,6 +284,26 @@ fn home_managers_build_inner() {
             Err(e) => eprintln!("{step}: stopped: {e}"),
         }
     }
+    // ILUMINA_RENDER=<file.png>: draw the stage as Lingo left it (local
+    // inspection only; the image is content and must not be committed).
+    // ILUMINA_DUMP=lib:member,…: print members' run-time text and styles
+    // (local debugging; content).
+    if let Ok(list) = std::env::var("ILUMINA_DUMP") {
+        for spec in list.split(',') {
+            let (l, m) = spec.split_once(':').unwrap();
+            if let Some(info) = host.member_info(l.parse().unwrap(), m.parse().unwrap()) {
+                eprintln!(
+                    "member {spec}: {:?}\n  text {:?}\n  runs {:?}",
+                    info.style,
+                    info.text,
+                    info.styled.as_ref().map(|s| &s.runs)
+                );
+            }
+        }
+    }
+    if let Ok(out) = std::env::var("ILUMINA_RENDER") {
+        render_png(&host, "Home.dxr", Path::new(&out));
+    }
     eprintln!(
         "media files unlocked (patched): {}",
         host.vfs.patched().count()
@@ -288,6 +314,14 @@ fn home_managers_build_inner() {
     }
     eprintln!("unanswered: {:?}", host.missing);
     eprintln!("network: {:?}", host.network);
+    let reads = host.vfs.reads.borrow();
+    let total: usize = reads.values().sum();
+    eprintln!("disc files read: {} ({} MB)", reads.len(), total >> 20);
+    if std::env::var("ILUMINA_DUMP_READS").is_ok() {
+        for (p, n) in reads.iter() {
+            eprintln!("  {p} {n}");
+        }
+    }
     for (step, r) in &rest {
         let expected = REST_STOPS.iter().find(|(s, _)| s == step).map(|(_, m)| *m);
         match (expected, r) {
@@ -310,5 +344,37 @@ fn home_managers_build_inner() {
             failures.iter().any(|(n, _)| n == name),
             "{name} now builds: update MANAGER_STOPS"
         );
+    }
+}
+
+struct MovieFiles(PathBuf);
+impl director::Files for MovieFiles {
+    fn read(&self, name: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.0.join("cd1/Program/Files").join(name)).ok()
+    }
+}
+
+fn render_png(host: &PlayerHost, movie: &str, out: &Path) {
+    let port = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = discs::for_tests(&port).unwrap();
+    let exe = std::fs::read(root.join("cd1/Program/iLumina.exe")).unwrap();
+    let palette = rifx::bitmap::system_win_palette(&exe).unwrap();
+    let stage = director::Stage::load(&MovieFiles(root), movie, palette).unwrap();
+    let (px, report) = stage
+        .render_draws(&host.draws(), &fonts::HostFonts::new())
+        .unwrap();
+    let f = std::fs::File::create(out).unwrap();
+    let mut enc = png::Encoder::new(f, stage.config.width as u32, stage.config.height as u32);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().unwrap().write_image_data(&px).unwrap();
+    eprintln!(
+        "rendered {} sprites ({} skipped) -> {}",
+        report.drawn.len(),
+        report.skipped.len(),
+        out.display()
+    );
+    for (n, why) in &report.skipped {
+        eprintln!("  sprite {n}: {why}");
     }
 }

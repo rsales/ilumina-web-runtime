@@ -31,7 +31,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   sprite properties and the startup order (`player::stage`); `value()`
   evaluates setting expressions. Text measuring (`charPosToLoc`,
   `locToCharPos`, member height) from the renderer's layout; Home's first
-  frame now runs its whole startup.
+  frame now runs its whole startup. The run-time stage renders (linked
+  JPEG/BMP media, Lingo's text styles); `xtask play` runs a movie's startup
+  and writes a PNG.
 
 ### Fixed
 - Port: member numbers now start at the cast's first member (`MCsL`, read

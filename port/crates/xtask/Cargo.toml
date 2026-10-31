@@ -12,5 +12,7 @@ valentina = { path = "../valentina" }
 qtvr = { path = "../qtvr" }
 discs = { path = "../discs" }
 director = { path = "../director" }
+player = { path = "../player" }
+lingo-vm = { path = "../lingo-vm" }
 png = "0.17"
 fontdue = "0.9"
