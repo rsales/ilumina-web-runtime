@@ -8,14 +8,41 @@ stay in `work/`, never in git.
 | Milestone | Gate | Status |
 |---|---|---|
 | M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
-| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score, text); browser player written, first wasm run on the Mac ⏳; SSIM moved to M2 |
-| M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
+| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ✅ done (2026-10-31): every module renders its score frames in the browser (wasm, Mac M4), 2–10 ms per frame; pixel parity needs Lingo state, so SSIM moved to M2 |
+| M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ started 2026-10-31 (slices below) |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
 | M4 multimedia | Animations and tours play; QTVR node switches and hotspots work | ⏳ |
 | M5 rest | Parity with `compatibility.md`, including Mui registration/activation running the original Lingo | ⏳ |
 | M6 polish | Crisp scaling, static deploy, timings on the Mac mini M4 | ⏳ |
 
-## M1 — static Home (started 2026-10-30)
+## M2 — interactive Home (started 2026-10-31)
+
+Time-box: 3 weeks. Stop rule (ADR 0008): if Home does not navigate by then
+and the VM keeps growing without closing the gap, stop and record it.
+
+Startup path (from `xtask lingo`, local only): `prepareMovie` →
+`SharedPrepareMovie(#module)` (GCode movie scripts) → `startMovie` (creates
+`script("Lite")`, the demo/activation object, run as-is) → behaviors'
+`beginSprite`, `prepareFrame`, `exitFrame` (`go the frame` loops). Code lives
+in `*Code.cxt`: GCode is shared (18 movie, 39 parent, 109 score scripts),
+HOCode has Home's (2 movie, 5 parent, 15 score).
+
+Slices, each with its own check:
+
+1. ⏳ `lingo-vm` core: values (int, float, string, symbol, void, list,
+   prop list, object), stack, locals/params/globals, jumps, arithmetic and
+   comparison, `localcall`/`extcall` to handlers across scripts. Unit tests
+   per opcode.
+2. ⏳ Movie events: run `prepareMovie`/`startMovie` of the movie scripts
+   across cast libs; log every builtin and Xtra call that is missing.
+3. ⏳ Sprites and behaviors: `beginSprite`, `prepareFrame`, `exitFrame`,
+   sprite properties (`member`, `loc`, `visible`, `ink`, `blend`), `go`,
+   `the frame`, frame labels, puppets. Home frame 1 then shows Lingo's state.
+4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
+   page; `go to movie` loads another module.
+5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
+
+## M1 — static Home (started 2026-10-30, done 2026-10-31)
 
 ### Hash gate ✅
 
@@ -96,7 +123,26 @@ stay in `work/`, never in git.
   differ from Windows. On the Mac the real faces are used. Director's
   anti-aliasing threshold and kerning are not modelled.
 
-### Browser player ⏳ (written 2026-10-31, not yet run in a browser)
+### Browser player ✅ (Mac M4, owner, 2026-10-31)
+
+- `cargo build --release -p web --target wasm32-unknown-unknown` and
+  `xtask serve ../../discs`: the page loads every module (Home, Bible,
+  Encyclopedia, TimeTravel, MediaCenter, Extras, MyStudyCenter) and renders any
+  frame in 2–10 ms. Fonts come from macOS through the canvas.
+- Compared by eye with Boxedwine (`work/reference/`): Encyclopedia frame 10,
+  TimeTravel frame 7 and MyStudyCenter frame 10 match in layout, photos and
+  text. Bible frame 4 matches except the book tree. The remaining differences
+  are runtime state:
+  - the module menu bar (":: BÍBLIA :: ENCICLOPÉDIA …") and the search field
+    texts, built by Lingo;
+  - navbar icons in their roll/down state;
+  - TreeView contents (book list, Extras tree) and Valentina text (M3);
+  - MediaCenter's title position/scale and TimeTravel's header bitmap.
+- Fonts: where the member asks for Georgia, the port draws Georgia; Boxedwine
+  draws a sans-serif (Wine has no Georgia). The Wine screenshots are not a
+  font reference.
+
+#### Written 2026-10-31
 
 - `port/crates/web`: the stage behind a hand-written wasm ABI (`alloc`,
   `file_add`, `needed_files`, `load`, `render`, `frame_ptr`…), so the only

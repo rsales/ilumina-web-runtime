@@ -105,6 +105,16 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("lingo") if args.len() >= 2 => {
+            let out = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("work/lingo"));
+            if let Err(e) = lingo_dump(&discs_root(&args[1]), &out) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some("texts") if args.len() >= 2 => {
             let out = args
                 .get(2)
@@ -133,6 +143,9 @@ fn main() {
                 "       xtask bitmaps <discs-dir> [out-dir]      # every bitmap as PNG, local only"
             );
             eprintln!("       xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "       xtask lingo <discs-dir> [out-dir]        # disassembly per script, local only"
+            );
             eprintln!(
                 "       xtask serve <discs-dir> [port]           # browser player on localhost (default 8800)"
             );
@@ -770,5 +783,84 @@ fn texts_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>
         }
     }
     println!("{total} text members -> {}", out.display());
+    Ok(())
+}
+
+/// Disassemble every script in the movie folder to `work/lingo/<file>.txt`,
+/// grouped by cast member (with its script type), names resolved. Local
+/// only: this is the original program's code.
+fn lingo_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = discs.join("cd1/Program/Files");
+    std::fs::create_dir_all(out)?;
+    let mut names: Vec<_> = std::fs::read_dir(&dir)?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| {
+            let l = n.to_ascii_lowercase();
+            !n.starts_with("._") && (l.ends_with(".cxt") || l.ends_with(".dxr"))
+        })
+        .collect();
+    names.sort();
+    let mut summary = String::from("# Script summary (local only)\n\n");
+    for name in names {
+        let data = std::fs::read(dir.join(&name))?;
+        let movie = Movie::parse(&data)?;
+        let all = members(&movie)?;
+        let ctxs = contexts(&movie)?;
+        let mut txt = String::new();
+        let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+        for ctx in &ctxs {
+            for s in &ctx.scripts {
+                let m = all.iter().flatten().find(|m| m.script_id == s.index);
+                let (num, mname, ty) = match m {
+                    Some(m) => (
+                        m.number as i64,
+                        m.name.clone(),
+                        format!("{:?}", m.script_type),
+                    ),
+                    None => (-1, String::new(), "no member".into()),
+                };
+                *kinds.entry(ty.clone()).or_default() += 1;
+                let _ = writeln!(
+                    txt,
+                    "\n## script {} · member #{num} {mname:?} · {ty}",
+                    s.index
+                );
+                if !s.property_ids.is_empty() {
+                    let props: Vec<_> = s.property_ids.iter().map(|&i| ctx.name(i)).collect();
+                    let _ = writeln!(txt, "property {}", props.join(", "));
+                }
+                for h in &s.handlers {
+                    let args: Vec<_> = h.argument_ids.iter().map(|&i| ctx.name(i)).collect();
+                    let _ = writeln!(txt, "\non {} {}", ctx.name(h.name_id), args.join(", "));
+                    if !h.local_ids.is_empty() {
+                        let l: Vec<_> = h.local_ids.iter().map(|&i| ctx.name(i)).collect();
+                        let _ = writeln!(txt, "  -- locals {}", l.join(", "));
+                    }
+                    for ins in disassemble(&h.bytecode)? {
+                        let arg = if ins.op.arg_is_name() {
+                            ctx.name(ins.arg).to_string()
+                        } else if ins.op.0 == 0x44 {
+                            match s.literals.get((ins.arg as usize) / 1usize) {
+                                Some(Literal::String(t)) => format!("{t:?}"),
+                                Some(l) => format!("{l:?}"),
+                                None => ins.arg.to_string(),
+                            }
+                        } else if ins.op.0 >= 0x40 {
+                            ins.arg.to_string()
+                        } else {
+                            String::new()
+                        };
+                        let _ = writeln!(txt, "  {:5} {:<16} {arg}", ins.offset, ins.op.name());
+                    }
+                }
+            }
+        }
+        let _ = writeln!(summary, "- {name}: {kinds:?}");
+        std::fs::write(out.join(format!("{name}.txt")), txt)?;
+    }
+    std::fs::write(out.join("README.md"), &summary)?;
+    print!("{summary}");
+    println!("-> {}", out.display());
     Ok(())
 }

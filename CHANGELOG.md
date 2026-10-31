@@ -26,6 +26,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- `xtask lingo`: disassembly per script and cast member (with script type)
+  to `work/lingo/`, local only. M1 closed; M2 (Lingo VM) planned in slices.
 - Port browser player: `crates/web` (stage behind a hand-written wasm ABI,
   fonts from the browser canvas), `port/web/` page and `xtask serve` (local,
   manifest-only file server). `discs::check_bytes` for fetched files.

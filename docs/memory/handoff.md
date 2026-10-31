@@ -35,7 +35,11 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
-**M1 in progress:** hash gate ✅, bitmaps ✅, score ✅, text ✅, native
+**M1 done (2026-10-31):** the browser player runs on the Mac (wasm) and renders
+every module's score frames. **M2 started**: slices in `docs/port-test-matrix.md`;
+`xtask lingo` dumps the disassembly per script to `work/lingo/`.
+
+Earlier M1 notes: hash gate ✅, bitmaps ✅, score ✅, text ✅, native
 compositor ⚠️. `xtask render <discs> Home.dxr 1` writes a PNG (now with text,
 fonts from the host). All 88 XMED and 92 STXT parse; encoding is per document
 (Mac Roman vs Windows-1252, flag in XMED section 1). Home frame 1 has no
