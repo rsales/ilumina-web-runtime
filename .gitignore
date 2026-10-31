@@ -11,7 +11,7 @@
 *.local
 
 # --- User-supplied discs and anything extracted from them -------------------
-discs/
+/discs/
 media/
 originals/
 extracted/
