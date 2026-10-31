@@ -638,6 +638,37 @@ mod tests {
         );
     }
 
+    // Regression: `(i - 1) mod keyLen` with an empty key (fresh profile)
+    // stopped the startup with "division by zero".
+    #[test]
+    fn integer_division_by_zero_warns_and_continues() {
+        const MOD: u8 = 0x08;
+        let p = program(
+            ScriptKind::Movie,
+            &["f"],
+            &[],
+            vec![],
+            vec![H {
+                name: "f",
+                args: &[],
+                locals: 0,
+                code: vec![
+                    (PUSHINT8, 7),
+                    (PUSHZERO, 0),
+                    (MOD, 0),
+                    (PUSHINT8, 7),
+                    (PUSHZERO, 0),
+                    (DIV, 0),
+                    (ADD, 0),
+                    (RET, 0),
+                ],
+            }],
+        );
+        let mut vm = Vm::new(p);
+        assert_eq!(vm.call(&mut NoHost, "f", vec![]).unwrap().to_int(), 7);
+        assert_eq!(vm.output.len(), 2);
+    }
+
     #[test]
     fn wide_ints_floats_and_jmp() {
         let code = vec![

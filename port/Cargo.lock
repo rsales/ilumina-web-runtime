@@ -200,6 +200,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "player"
+version = "0.0.1"
+dependencies = [
+ "discs",
+ "lingo-vm",
+ "rifx",
+]
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"

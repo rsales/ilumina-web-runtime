@@ -21,6 +21,7 @@ Milestone **M1** (static Home) in progress: bitmaps, shapes, score and text rend
 | `crates/xtask` | Local tooling (`verify`, `inventory`, `valentina`, `qtvr`, `bitmaps`, `texts`, `score`, `render`), output to `work/`; fontdue over host fonts | ✅ |
 | `crates/web` | Browser player: the stage behind a hand-written wasm ABI (no wasm-bindgen); page in `port/web/`, fonts from the browser canvas | ⚠️ built on the Mac only |
 | `crates/lingo-vm` | Lingo bytecode interpreter: values, lists, chunks, handlers, parent scripts, `Host` trait for the player | ✅ core (M2 slice 1); host functions in progress |
+| `crates/player` | Host for the VM: virtual Windows file system (full-install layout), movie/player properties, BuddyAPI, FileIO, prefs | ⚠️ in progress (M2 slice 2) |
 | `xtras`, `media-prep` | see ADR 0008 | created when their milestone starts |
 
 ## Commands

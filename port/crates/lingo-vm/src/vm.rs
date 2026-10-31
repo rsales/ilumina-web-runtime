@@ -412,6 +412,15 @@ impl Vm {
                 _ => return Err(format!("rect has no property #{name}")),
             },
             Value::Str(s) if lname == "length" => Value::Int(s.chars().count() as i64),
+            Value::Date(d) => {
+                let (y, m, dd) = crate::value::civil_from_days(*d);
+                match lname.as_str() {
+                    "year" => Value::Int(y),
+                    "month" => Value::Int(m),
+                    "day" => Value::Int(dd),
+                    _ => return Err(format!("date has no property #{name}")),
+                }
+            }
             Value::Host(r) => {
                 let r = r.clone();
                 match host.get_prop(self, &r, name)? {
@@ -557,6 +566,18 @@ impl Vm {
                     let b = f.pop()?;
                     let a = f.pop()?;
                     let c = ['*', '+', '-', '/', '%'][(op - 0x04) as usize];
+                    // Integer division by zero: warn and divide by 1 (the
+                    // original code reaches `x mod 0` on a fresh profile and
+                    // no script error is known from Wine; unverified).
+                    let b = if matches!(c, '/' | '%')
+                        && matches!(b.number(), Some(crate::value::Num::Int(0)))
+                    {
+                        self.output
+                            .push(format!("warning: {} {c} 0 treated as {c} 1", a));
+                        Value::Int(1)
+                    } else {
+                        b
+                    };
                     f.stack.push(arith(c, &a, &b)?);
                 }
                 0x09 => {

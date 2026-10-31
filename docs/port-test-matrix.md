@@ -46,8 +46,24 @@ Slices, each with its own check:
      `dCheck.new` → `GetNameEmailData`) until they need the player:
      `the applicationPath`, `the moviePath`, BuddyAPI (`baReadIni`,
      `baSysFolder`), FileIO, Valentina init, prefs. That list is slice 2.
-2. ⏳ Movie events: run `prepareMovie`/`startMovie` of the movie scripts
-   across cast libs; log every builtin and Xtra call that is missing.
+2. ⚠️ Movie events (in progress, 2026-10-31): `crates/player` provides the
+   host: a virtual Windows file system laid out like the original full
+   install (`C:\Program Files\iLuminaPO\` = CD 1 `Program` + media of CDs
+   2–4, the installer's `iLuminaInfo.txt`, `D:\` = CD 1, a writable overlay),
+   movie/player properties, `the stage`, `systemDate` (real clock), member
+   lookup, Director prefs, BuddyAPI (files, folders, INI, dialogs recorded)
+   and FileIO.
+   - Home's `startMovie` (HOCode) now runs to the end, including `Lite`
+     and `dCheck` (the program's own demo/registration code, untouched).
+   - `prepareMovie` runs PathMgr, Framework, SoundMgr, Nav, PaletteMgr,
+     SpriteMgr, HelpMgr, IMLMgr and the database-update scan, and stops at
+     `VDatabase.OpenDatabase` (AppTables.vdb): the V4MD layer is next. The
+     shared `startMovie` then fails only because that object is missing.
+   - On a fresh profile the program shows "Unable to read registration"
+     (no `C:\WINDOWS\irkvbp.txt` yet), as a new Windows install would.
+   - ⏳ Unverified: integer `x mod 0` (reached by the original code on a fresh
+     profile) is treated as `x mod 1` with a warning; confirm on Wine that no
+     script error appears at first launch.
 3. ⏳ Sprites and behaviors: `beginSprite`, `prepareFrame`, `exitFrame`,
    sprite properties (`member`, `loc`, `visible`, `ink`, `blend`), `go`,
    `the frame`, frame labels, puppets. Home frame 1 then shows Lingo's state.

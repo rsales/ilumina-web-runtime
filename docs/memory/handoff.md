@@ -35,6 +35,12 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 2 in progress (2026-10-31):** `crates/player` (virtual file
+system, properties, BuddyAPI, FileIO, prefs). Home's `startMovie` runs to the
+end; `prepareMovie` stops at `VDatabase.OpenDatabase` (AppTables.vdb). Next:
+the V4MD layer over `crates/valentina` — field names from `.vdb` and the SQL
+subset the Db.* scripts use.
+
 **M2 slice 1 done (2026-10-31):** `crates/lingo-vm` runs the original
 bytecode; Home's `prepareMovie`/`startMovie` stop at the first player
 function (`the applicationPath`, BuddyAPI, FileIO, Valentina, prefs). Next:

@@ -85,6 +85,8 @@ pub enum Value {
     PropList(PropListRef),
     Point(f64, f64),
     Rect(f64, f64, f64, f64),
+    /// A calendar date, as days since 1970-01-01 (proleptic Gregorian).
+    Date(i64),
     /// A script (`script "X"`), by index into the program.
     Script(usize),
     Object(ObjectRef),
@@ -126,6 +128,7 @@ impl Value {
             Value::PropList(_) => "propList",
             Value::Point(..) => "point",
             Value::Rect(..) => "rect",
+            Value::Date(_) => "date",
             Value::Script(_) => "script",
             Value::Object(_) => "instance",
             Value::Host(HostRef::Sprite(_)) => "sprite",
@@ -215,6 +218,7 @@ impl Value {
                 }
             }
             (Point(a, b), Point(c, d)) => a == c && b == d,
+            (Date(a), Date(b)) => a == b,
             (Rect(a, b, c, d), Rect(e, f, g, h)) => a == e && b == f && c == g && d == h,
             (a, b) => match (a.number_strict(), b.number_strict()) {
                 (Some(x), Some(y)) => x.as_f64() == y.as_f64(),
@@ -226,6 +230,7 @@ impl Value {
     /// Ordering for `<`, `>`…: numbers numerically, strings case-insensitively.
     pub fn lingo_cmp(&self, other: &Value) -> Option<std::cmp::Ordering> {
         match (self, other) {
+            (Value::Date(a), Value::Date(b)) => Some(a.cmp(b)),
             (Value::Str(a), Value::Str(b)) => Some(lower(a).cmp(&lower(b))),
             (Value::Symbol(a), Value::Symbol(b)) => Some(lower(a).cmp(&lower(b))),
             _ => {
@@ -247,6 +252,38 @@ impl Value {
 
 fn lower(s: &str) -> String {
     s.to_lowercase()
+}
+
+/// Days since 1970-01-01 for a Gregorian date (Howard Hinnant's algorithm).
+pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// (year, month, day) for days since 1970-01-01.
+pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (
+        if m <= 2 {
+            yoe + era * 400 + 1
+        } else {
+            yoe + era * 400
+        },
+        m,
+        d,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -294,6 +331,11 @@ pub fn parse_number(s: &str) -> Option<Num> {
 pub fn arith(op: char, a: &Value, b: &Value) -> Result<Value, String> {
     use Value::*;
     match (a, b) {
+        (Date(x), Date(y)) if op == '-' => Ok(Int(x - y)),
+        (Date(x), n) if (op == '+' || op == '-') && n.number().is_some() => {
+            let d = n.to_int();
+            Ok(Date(if op == '+' { x + d } else { x - d }))
+        }
         (Point(x1, y1), Point(x2, y2)) => Ok(Point(f(op, *x1, *x2)?, f(op, *y1, *y2)?)),
         (Point(x, y), s) if s.number().is_some() => {
             let n = s.to_f64();
@@ -407,6 +449,10 @@ impl fmt::Display for Value {
                 num_text(*c),
                 num_text(*d)
             ),
+            Value::Date(d) => {
+                let (y, m, dd) = civil_from_days(*d);
+                write!(f, "date( {y}, {m}, {dd} )")
+            }
             Value::Script(i) => write!(f, "<script {i}>"),
             Value::Object(o) => write!(f, "<offspring script {}>", o.borrow().script),
             Value::Host(h) => match h {
@@ -475,6 +521,23 @@ mod tests {
             Value::str("b").lingo_cmp(&Value::str("A")),
             Some(std::cmp::Ordering::Greater)
         );
+    }
+
+    #[test]
+    fn dates_compare_and_subtract_in_days() {
+        let a = Value::Date(days_from_civil(2005, 3, 1));
+        let b = Value::Date(days_from_civil(2004, 12, 31));
+        assert!(matches!(arith('-', &a, &b), Ok(Value::Int(60))));
+        assert_eq!(
+            arith('+', &b, &Value::Int(1)).unwrap().to_string(),
+            "date( 2005, 1, 1 )"
+        );
+        assert_eq!(a.lingo_cmp(&b), Some(std::cmp::Ordering::Greater));
+        assert_eq!(
+            civil_from_days(days_from_civil(2026, 10, 31)),
+            (2026, 10, 31)
+        );
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
     }
 
     #[test]

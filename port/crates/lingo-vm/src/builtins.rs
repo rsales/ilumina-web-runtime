@@ -19,6 +19,37 @@ fn idx(v: &Value) -> usize {
 pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
     let a0 = arg(args, 0);
     let lname = name.to_ascii_lowercase();
+    if let Value::Str(s) = &a0 {
+        if let Some(v) = string_chunk(vm, s, &lname, args) {
+            return Ok(Some(v));
+        }
+    }
+    // `plist[#key]` and `plist[#key] = v` compile to getAt/setAt with a
+    // non-numeric index: they work by property.
+    if let Value::PropList(l) = &a0 {
+        let key = arg(args, 1);
+        if !matches!(key, Value::Int(_) | Value::Float(_)) {
+            match lname.as_str() {
+                "getat" => {
+                    let v = l
+                        .borrow()
+                        .iter()
+                        .find(|p| p.0.lingo_eq(&key))
+                        .map(|p| p.1.clone());
+                    return Ok(Some(v.unwrap_or_default()));
+                }
+                "setat" => {
+                    let mut l = l.borrow_mut();
+                    match l.iter_mut().find(|p| p.0.lingo_eq(&key)) {
+                        Some(slot) => slot.1 = arg(args, 2),
+                        None => l.push((key, arg(args, 2))),
+                    }
+                    return Ok(Some(Value::Void));
+                }
+                _ => {}
+            }
+        }
+    }
     let v = match lname.as_str() {
         // --- types ---
         "voidp" => Value::bool(a0.is_void()),
@@ -100,7 +131,11 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
             Value::Float(x) => Value::Float(x.abs()),
             v => Value::Int(v.to_int().abs()),
         },
-        "sqrt" => Value::Float(a0.to_f64().sqrt()),
+        // sqrt of an integer is a rounded integer in Lingo (`sqrt(2)` = 1).
+        "sqrt" => match a0.number() {
+            Some(crate::value::Num::Int(i)) => Value::Int((i as f64).sqrt().round() as i64),
+            _ => Value::Float(a0.to_f64().sqrt()),
+        },
         "sin" => Value::Float(a0.to_f64().sin()),
         "cos" => Value::Float(a0.to_f64().cos()),
         "atan" => Value::Float(a0.to_f64().atan()),
@@ -135,6 +170,16 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
             best.unwrap_or_default()
         }
         "point" => Value::Point(a0.to_f64(), arg(args, 1).to_f64()),
+        // date(2005, 3, 1) or date(20050301)
+        "date" => {
+            let (y, m, d) = if args.len() >= 3 {
+                (a0.to_int(), arg(args, 1).to_int(), arg(args, 2).to_int())
+            } else {
+                let n = a0.to_int();
+                (n / 10000, n / 100 % 100, n % 100)
+            };
+            Value::Date(crate::value::days_from_civil(y, m, d))
+        }
         "rect" => match (&a0, &arg(args, 1)) {
             (Value::Point(l, t), Value::Point(r, b)) => Value::Rect(*l, *t, *r, *b),
             _ => Value::Rect(
@@ -450,6 +495,38 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
     Ok(Some(v))
 }
 
+/// D8 chunk access on a string value: `s.char[3]` compiles to
+/// `getProp(s, #char, 3)`, `s.word.count` to `count(s, #word)`.
+fn string_chunk(vm: &Vm, s: &str, lname: &str, args: &[Value]) -> Option<Value> {
+    use crate::chunk::{self, ChunkSpec, Kind};
+    let kind = match arg(args, 1) {
+        Value::Symbol(k) => match k.to_ascii_lowercase().as_str() {
+            "char" => Kind::Char,
+            "word" => Kind::Word,
+            "item" => Kind::Item,
+            "line" => Kind::Line,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let d = vm.item_delimiter;
+    match lname {
+        "count" => Some(Value::Int(chunk::count(s, kind, d) as i64)),
+        "getprop" | "getpropref" | "getaprop" => {
+            let range = (arg(args, 2).to_int(), arg(args, 3).to_int());
+            let mut spec = ChunkSpec::default();
+            match kind {
+                Kind::Char => spec.char = range,
+                Kind::Word => spec.word = range,
+                Kind::Item => spec.item = range,
+                Kind::Line => spec.line = range,
+            }
+            Some(Value::Str(chunk::get(s, &spec, d)))
+        }
+        _ => None,
+    }
+}
+
 /// Methods every instance answers even without a handler.
 pub fn object_method(_vm: &mut Vm, o: &ObjectRef, name: &str, args: &[Value]) -> R {
     Ok(Some(match name.to_ascii_lowercase().as_str() {
@@ -591,6 +668,10 @@ mod tests {
         assert_eq!(b("findPos", &[p.clone(), Value::sym("b")]).to_int(), 2);
         b("deleteProp", &[p.clone(), Value::sym("a")]);
         assert_eq!(p.to_string(), "[#b: 2]");
+        // Regression: `plist[#key] = v` is setAt with a symbol (Lite.SetTrigger).
+        b("setAt", &[p.clone(), Value::sym("about"), Value::Int(1)]);
+        assert_eq!(b("getAt", &[p.clone(), Value::sym("about")]).to_int(), 1);
+        assert_eq!(p.to_string(), "[#b: 2, #about: 1]");
     }
 
     #[test]

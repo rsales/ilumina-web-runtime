@@ -26,6 +26,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Port M2 slice 2 (in progress): `crates/player`, the host for the Lingo VM
+  (virtual Windows file system like the original full install, movie and
+  player properties, BuddyAPI, FileIO, prefs, dates). Home's `startMovie`
+  runs to the end; `prepareMovie` reaches the Valentina database layer.
 - Port M2 slice 1: `crates/lingo-vm`, a Lingo bytecode interpreter (values,
   lists, chunks, handlers across cast libs, parent scripts, `Host` trait).
   Every opcode on the discs is implemented; Home's movie events run until

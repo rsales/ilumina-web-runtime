@@ -106,3 +106,20 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - **Bytecode args are direct indices in D8+** (no ×6/×8 multiplier for
   locals, params or literals).
 
+- **More Lingo semantics found by running the real startup** (2026-10-31),
+  each with a regression test:
+  - `sqrt` of an integer returns a rounded integer (`sqrt(2)` = 1). As a
+    float, Serial's `Dec2Bin` divided by 1.41…, 1.18… and recursed forever.
+  - `s.char[i]` on a string value compiles to `getProp(s, #char, i)`;
+    `s.word.count` to `count(s, #word)`.
+  - `plist[#key] = v` compiles to `setAt(plist, #key, v)`: getAt/setAt with a
+    non-numeric index work by property.
+  - Dates are a real type: compare, subtract (days), add days.
+- **Lingo recursion is native recursion in the VM.** Debug test threads
+  (2 MB) overflow at real depths; the disc test runs on a 256 MB thread.
+  Check the wasm stack when the VM goes into the browser.
+- **The startup needs Valentina early.** `init` opens `AppTables.vdb` with
+  `VDatabase`/`VCursor` and SQL (`select … from COMP where …`), so the V4MD
+  layer (field names from `.vdb`, an SQL subset) is needed for Home, not only
+  for the Bible module.
+
