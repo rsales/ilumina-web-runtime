@@ -28,8 +28,8 @@ M0 status:
   V4MD under Wine.
 - **QTVR:** `NZV.mov` is cubic, with 28 nodes × 6 faces of 768² MPEG-4.
   ffmpeg decodes the faces. The `smc` hotspot track and the node graph are pending.
-- **Still to do:** try dirplayer-rs on `Home.dxr`, decide on GPL, check the
-  wasm build of `rifx`, and add a manifest hash gate.
+- **Still to do:** try dirplayer-rs on `Home.dxr`, decide on GPL, and add a manifest hash gate. (The wasm build of `rifx` and the
+  disc test pass on the Mac M4.)
 
 See `docs/port-test-matrix.md`.
 

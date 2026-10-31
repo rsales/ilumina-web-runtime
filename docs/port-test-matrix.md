@@ -31,7 +31,9 @@ stay in `work/`, never in git.
 - The `.dxr` movies hold only the score and links (`VWSC`, `MCsL`, `Sord`…).
   Their members live in the shared `*Code.cxt` / `*Assets.cxt` casts.
 - Checked by: `cargo test -p rifx` with `ILUMINA_DISCS` set (asserts the
-  counts above). The inventory is `cargo run -p xtask -- inventory <discs>`,
+  counts above). It passes on x86_64 Linux and on the Mac mini M4 (2026-10-30).
+- `cargo build -p rifx --target wasm32-unknown-unknown` ✅ on the Mac mini
+  M4, so the parser compiles for the browser. The inventory is `cargo run -p xtask -- inventory <discs>`,
   written to `work/inventory/`.
 
 ### Engine surface (from the inventory)
@@ -80,6 +82,4 @@ stay in `work/`, never in git.
 ### Not done in M0 yet ⏳
 
 - dirplayer-rs test against `Home.dxr`, and the GPL decision.
-- `wasm32` build of `rifx`: the sandbox can't download the Rust wasm target.
-  The crate has no dependencies and no I/O.
 - Hash gate against the manifest inside `xtask`.
