@@ -80,6 +80,18 @@ stay in `work/`, never in git.
   `AddOns`, `txt_Clickable`) are empty in the cast and Lingo fills them. The
   pipeline was checked on frames that do hold text (Bible 30, MediaCenter 99):
   wrapping, accents, styles and right alignment look right by eye.
+- **Mac M4 (owner, 2026-10-31):** `render ../../discs Bible.dxr 30` used the
+  real faces (Verdana, Verdana Bold, Georgia, Microsoft Sans Serif from
+  `/System/Library/Fonts/Supplemental`), and Mac Roman text decodes ("Isaías").
+  Compared by eye with Boxedwine on 1 Samuel 3 (`work/reference/`), the
+  static parts line up: the panel frames, positions, fonts and sizes. The
+  differences are runtime state again:
+  - Score frame 30 stacks every panel of the screen (index, photo, map,
+    titles "Índice/Mapa/Cruz" on top of each other). Lingo shows one at a
+    time, so sprite visibility and puppeting come first in M2.
+  - The chapter text, the reference notes and the "1 samuel" header come from
+    Valentina through Lingo (M3).
+  - Windows draws small text without anti-aliasing; the port always smooths.
 - ⚠️ In the sandbox Verdana falls back to DejaVu Sans (wider), so line breaks
   differ from Windows. On the Mac the real faces are used. Director's
   anti-aliasing threshold and kerning are not modelled.
