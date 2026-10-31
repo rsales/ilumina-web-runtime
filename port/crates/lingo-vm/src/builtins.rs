@@ -188,6 +188,18 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
             };
             Value::Date(crate::value::days_from_civil(y, m, d))
         }
+        // rgb(r, g, b) or rgb("#RRGGBB"); out-of-range components clamp.
+        "rgb" => {
+            let c = |v: Value| v.to_int().clamp(0, 255) as u8;
+            match &a0 {
+                Value::Str(h) if args.len() == 1 => {
+                    let h = h.trim_start_matches('#');
+                    let n = u32::from_str_radix(h, 16).unwrap_or(0);
+                    Value::Color((n >> 16) as u8, (n >> 8) as u8, n as u8)
+                }
+                _ => Value::Color(c(a0.clone()), c(arg(args, 1)), c(arg(args, 2))),
+            }
+        }
         "rect" => match (&a0, &arg(args, 1)) {
             (Value::Point(l, t), Value::Point(r, b)) => Value::Rect(*l, *t, *r, *b),
             _ => Value::Rect(
@@ -659,6 +671,19 @@ mod tests {
         b("add", &[d.clone(), Value::Int(5)]);
         assert_eq!(b("count", &[l]).to_int(), 4);
         assert_eq!(b("count", &[d]).to_int(), 5);
+    }
+
+    #[test]
+    fn rgb_colors() {
+        // Regression: MenuMgr.new stopped at `rgb(255, 255, 225)` (tooltip
+        // colors), which was not implemented.
+        let c = b("rgb", &[Value::Int(255), Value::Int(300), Value::Int(-4)]);
+        assert_eq!(c.ilk(), "color");
+        assert_eq!(c.to_string(), "rgb( 255, 255, 0 )");
+        assert!(b("rgb", &[Value::str("#FFFFE1")]).lingo_eq(&b(
+            "rgb",
+            &[Value::Int(255), Value::Int(255), Value::Int(225)]
+        )));
     }
 
     #[test]

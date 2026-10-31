@@ -146,3 +146,15 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   calls with no arguments.
 - **Mui buttons can be `defaultPushButton`**, not only `pushButton`.
 
+- **CMediaLock rewrites media headers at every start** (2026-10-31):
+  `UnlockAnimations`/`UnlockGTVs` write 25 bytes from the `bin` column of
+  `Media.vdb`/`Tours.vdb` to the front of 83 `.mov`/`.mp4` files through
+  BinaryIO. In the port these are `Vfs::patch`es (no copy of large files,
+  originals untouched). The disc files already have valid headers.
+- **Globals are keyed lower-case** in the VM: use `vm.set_global`/`global`,
+  never the `globals` map directly (a test scaffold got this wrong).
+- **`register(xtra "X", key)` is an Xtra vendor's licence**, not iLumina's
+  activation: the reimplemented Xtra needs none, so it is a no-op.
+- **Component disc tests reach code past a dialog** without special-casing
+  it in the engine: run `prepareMovie` (stops at registration), then build
+  the objects `init` would build, with `init`'s arguments.

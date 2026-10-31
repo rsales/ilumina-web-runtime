@@ -1,7 +1,7 @@
 //! The player over the user's discs (found by `discs::for_tests`): Home's
 //! movie events with the real host. Prints counts and names, never content.
 
-use lingo_vm::Vm;
+use lingo_vm::{Value, Vm};
 use player::{DiscFiles, PlayerHost, Vfs};
 use std::path::{Path, PathBuf};
 
@@ -103,8 +103,19 @@ fn home_movie_events_inner() {
             Err(e) => eprintln!("{event}: stopped: {}", mask(&e.to_string())),
         }
         if with_owner {
-            // With the owner's data the run goes further; report, don't
-            // assert, until the ratchet for that path is set from a real run.
+            // With the owner's data the run goes further; it must not fall
+            // back to stops already fixed on that path. (Full ratchet once
+            // the path is set from real runs.)
+            // Regression: registration accepted, then `the actorList` in
+            // Poster.POST was missing.
+            if let Err(e) = &r {
+                for fixed in ["Registre Sua C", "the actorList"] {
+                    assert!(
+                        !e.message.contains(fixed),
+                        "{event}: back at a fixed stop ({fixed})"
+                    );
+                }
+            }
             continue;
         }
         match (expected, r) {
@@ -126,4 +137,159 @@ fn home_movie_events_inner() {
     }
     eprintln!("unanswered: {:?}", host.missing);
     eprintln!("database writes recorded: {}", host.v4md.writes.len());
+}
+
+/// The managers `init` creates after registration (script, global, extra args;
+/// `DB` = the Databases folder + file name, as `init` builds it). Built one
+/// by one after prepareMovie stops at the registration dialog, so the code
+/// past registration is exercised without the owner's data.
+const MANAGERS: &[(&str, &str, &[&str])] = &[
+    ("AddOnMgr", "oAOMgr", &[]),
+    ("Db.ModTables", "oModTables", &["DB:ModTables.vdb"]),
+    ("Bible", "oBible", &["1", "1", "1", "DB:"]),
+    ("Db.Comp", "oComp", &["DB:Comp.vdb"]),
+    ("Db.Ency", "oEncy", &["DB:Ency.vdb"]),
+    ("Db.Media", "oMda", &["DB:Media.vdb"]),
+    ("Db.QTVR", "oTours", &["DB:Tours.vdb"]),
+    ("Find", "oFind", &[]),
+    ("MenuMgr", "goMenuMgr", &[]),
+    ("Anims", "oAnims", &["ANIMATIONS"]),
+    ("Photos", "oFotos", &["PHOTOS"]),
+    ("Maps", "oMaps", &["MAPS"]),
+    ("Audio", "oAudio", &["AUDIO"]),
+    ("Db.TT", "oTime", &[]),
+];
+
+/// Managers that still fail, with the expected message (a ratchet, like
+/// `EXPECTED`). Empty = every manager must build.
+const MANAGER_STOPS: &[(&str, &str)] = &[];
+
+/// Where the rest of the registered path stops (ratchet).
+const REST_STOPS: &[(&str, &str)] = &[
+    // Sprites and behaviors are M2 slice 3.
+    ("startMovie", "handler #sendSprite"),
+];
+
+#[test]
+fn home_managers_build() {
+    big_stack(home_managers_build_inner);
+}
+
+fn home_managers_build_inner() {
+    let Some((mut vm, mut host)) = load("Home.dxr") else {
+        return;
+    };
+    let _ = vm.movie_event(&mut host, "prepareMovie", vec![]);
+    let db_dir = vm
+        .call(
+            &mut host,
+            "BuildPath",
+            vec![Value::list(vec![Value::str("Databases")])],
+        )
+        .expect("BuildPath")
+        .to_text();
+    let mut failures = Vec::new();
+    for &(name, global, extra) in MANAGERS {
+        let idx = vm
+            .program
+            .script_named(name)
+            .unwrap_or_else(|| panic!("no script {name:?}"));
+        let mut args = vec![Value::Script(idx)];
+        for a in extra {
+            args.push(match a.strip_prefix("DB:") {
+                Some(file) => Value::str(format!("{db_dir}{file}")),
+                None => match a.parse::<i64>() {
+                    Ok(i) => Value::Int(i),
+                    Err(_) => Value::str(*a),
+                },
+            });
+        }
+        match vm.call_method(&mut host, "new", args) {
+            Ok(v) => {
+                eprintln!("{name}: OK ({})", v.ilk());
+                vm.set_global(global, v);
+            }
+            Err(e) => {
+                eprintln!("{name}: stopped: {e}");
+                failures.push((name, e.message.clone()));
+            }
+        }
+    }
+    // The rest of init, then SharedPrepareMovie's module object, then
+    // startMovie: the path a registered copy takes.
+    let media = |sub: &str, vm: &mut Vm, host: &mut PlayerHost| {
+        vm.call(
+            host,
+            "BuildPath",
+            vec![Value::list(vec![Value::str("Media"), Value::str(sub)])],
+        )
+        .map(|v| v.to_text())
+    };
+    let mut rest: Vec<(&str, Result<Value, lingo_vm::LingoError>)> = Vec::new();
+    let anims = media("Animations", &mut vm, &mut host).unwrap();
+    let o = vm.global("oAnims");
+    rest.push((
+        "UnlockAnimations",
+        vm.call_method(
+            &mut host,
+            "UnlockAnimations",
+            vec![o, Value::str(anims), Value::str(".mov")],
+        ),
+    ));
+    let tours = media("GuidedTours", &mut vm, &mut host).unwrap();
+    let o = vm.global("oTours");
+    rest.push((
+        "UnlockGTVs",
+        vm.call_method(&mut host, "UnlockGTVs", vec![o, Value::str(tours)]),
+    ));
+    let module = vm.program.script_named("Home Module").expect("Home Module");
+    let r = vm.call_method(&mut host, "new", vec![Value::Script(module)]);
+    if let Ok(v) = &r {
+        vm.set_global("goCurrentModule", v.clone());
+    }
+    rest.push(("new(script \"Home Module\")", r));
+    rest.push((
+        "startMovie",
+        vm.movie_event(&mut host, "startMovie", vec![])
+            .map(|n| Value::Int(n as i64)),
+    ));
+    for (step, r) in &rest {
+        match r {
+            Ok(_) => eprintln!("{step}: OK"),
+            Err(e) => eprintln!("{step}: stopped: {e}"),
+        }
+    }
+    eprintln!(
+        "media files unlocked (patched): {}",
+        host.vfs.patched().count()
+    );
+    eprintln!("alerts: {}", host.alerts.len());
+    for a in &host.alerts {
+        eprintln!("  alert: {}", a.chars().take(80).collect::<String>());
+    }
+    eprintln!("unanswered: {:?}", host.missing);
+    eprintln!("network: {:?}", host.network);
+    for (step, r) in &rest {
+        let expected = REST_STOPS.iter().find(|(s, _)| s == step).map(|(_, m)| *m);
+        match (expected, r) {
+            (None, Ok(_)) => {}
+            (None, Err(e)) => panic!("{step} must complete, stopped: {e}"),
+            (Some(stop), Err(e)) => {
+                assert!(e.message.contains(stop), "{step} stopped elsewhere: {e}")
+            }
+            (Some(stop), Ok(_)) => panic!("{step} now completes (was {stop:?}): update REST_STOPS"),
+        }
+    }
+    for (name, msg) in &failures {
+        match MANAGER_STOPS.iter().find(|(n, _)| n == name) {
+            Some((_, stop)) => assert!(msg.contains(stop), "{name} stopped elsewhere: {msg}"),
+            None => panic!("{name} must build, stopped: {msg}"),
+        }
+    }
+    for (name, _) in MANAGER_STOPS {
+        assert!(
+            failures.iter().any(|(n, _)| n == name),
+            "{name} now builds: update MANAGER_STOPS"
+        );
+    }
 }

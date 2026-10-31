@@ -33,6 +33,10 @@ pub struct Vfs {
     overlay: BTreeMap<String, (String, Vec<u8>)>,
     /// lower-case Windows paths deleted by the program
     deleted: Vec<String>,
+    /// Byte writes into files that are still read from the discs (a
+    /// program that rewrites a few header bytes of a large media file):
+    /// lower-case path → (offset, bytes), applied in order on read.
+    patches: HashMap<String, Vec<(usize, Vec<u8>)>>,
 }
 
 fn norm(p: &str) -> String {
@@ -51,6 +55,7 @@ impl Vfs {
             index,
             overlay: BTreeMap::new(),
             deleted: Vec::new(),
+            patches: HashMap::new(),
         };
         v.write(
             &format!("{APP_DIR}iLuminaInfo.txt"),
@@ -92,7 +97,35 @@ impl Vfs {
         if self.deleted.contains(&key) {
             return None;
         }
-        self.disc.read(&self.resolve(win)?)
+        let mut b = self.disc.read(&self.resolve(win)?)?;
+        for (at, bytes) in self.patches.get(&key).into_iter().flatten() {
+            apply(&mut b, *at, bytes);
+        }
+        Some(b)
+    }
+
+    /// Overwrite `bytes` at `at` in an existing file without copying it into
+    /// the overlay (the file may be a large disc file). Grows the file when
+    /// writing past its end. False if the file does not exist.
+    pub fn patch(&mut self, win: &str, at: usize, bytes: &[u8]) -> bool {
+        let key = norm(win);
+        if let Some((_, b)) = self.overlay.get_mut(&key) {
+            apply(b, at, bytes);
+            return true;
+        }
+        if !self.exists(win) {
+            return false;
+        }
+        self.patches
+            .entry(key)
+            .or_default()
+            .push((at, bytes.to_vec()));
+        true
+    }
+
+    /// Patches made to disc files, by Windows path (lower case).
+    pub fn patched(&self) -> impl Iterator<Item = (&str, &[(usize, Vec<u8>)])> {
+        self.patches.iter().map(|(k, v)| (k.as_str(), v.as_slice()))
     }
 
     pub fn exists(&self, win: &str) -> bool {
@@ -123,6 +156,7 @@ impl Vfs {
     pub fn write(&mut self, win: &str, bytes: Vec<u8>) {
         let key = norm(win);
         self.deleted.retain(|d| d != &key);
+        self.patches.remove(&key);
         self.overlay.insert(key, (win.to_string(), bytes));
     }
 
@@ -213,6 +247,13 @@ impl Vfs {
 }
 
 /// `*` and `?` wildcard match, case-insensitive (BuddyAPI file patterns).
+fn apply(b: &mut Vec<u8>, at: usize, bytes: &[u8]) {
+    if b.len() < at + bytes.len() {
+        b.resize(at + bytes.len(), 0);
+    }
+    b[at..at + bytes.len()].copy_from_slice(bytes);
+}
+
 pub fn wildcard(pattern: &str, name: &str) -> bool {
     let (p, n): (Vec<char>, Vec<char>) = (
         pattern.to_lowercase().chars().collect(),
@@ -315,6 +356,22 @@ mod tests {
         assert!(v
             .read("C:\\Program Files\\iLuminaPO\\iLumina.ini")
             .is_none());
+    }
+
+    #[test]
+    fn patches_rewrite_bytes_of_disc_files_without_copying_them() {
+        let mut v = vfs();
+        let p = "C:\\Program Files\\iLuminaPO\\Files\\Media\\Photos\\a.jpg";
+        assert!(v.patch(p, 1, b"P"));
+        assert!(v.patch(p, 3, b"!"));
+        assert_eq!(v.read(p).as_deref(), Some(&b"jPg!"[..]));
+        assert_eq!(v.patched().count(), 1);
+        assert!(!v.patch("C:\\nope.bin", 0, b"x"));
+        // A whole-file write replaces earlier patches.
+        v.write(p, b"new".to_vec());
+        assert_eq!(v.patched().count(), 0);
+        assert!(v.patch(p, 0, b"N"));
+        assert_eq!(v.read(p).as_deref(), Some(&b"New"[..]));
     }
 
     #[test]

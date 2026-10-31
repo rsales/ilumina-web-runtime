@@ -87,6 +87,8 @@ pub enum Value {
     Rect(f64, f64, f64, f64),
     /// A calendar date, as days since 1970-01-01 (proleptic Gregorian).
     Date(i64),
+    /// A color: `rgb(r, g, b)` (Director 7+ color object).
+    Color(u8, u8, u8),
     /// A script (`script "X"`), by index into the program.
     Script(usize),
     Object(ObjectRef),
@@ -129,6 +131,7 @@ impl Value {
             Value::Point(..) => "point",
             Value::Rect(..) => "rect",
             Value::Date(_) => "date",
+            Value::Color(..) => "color",
             Value::Script(_) => "script",
             Value::Object(_) => "instance",
             Value::Host(HostRef::Sprite(_)) => "sprite",
@@ -203,6 +206,7 @@ impl Value {
             (Symbol(a), Str(b)) | (Str(b), Symbol(a)) => a.eq_ignore_ascii_case(b),
             (Object(a), Object(b)) => Rc::ptr_eq(a, b),
             (Script(a), Script(b)) => a == b,
+            (Color(a, b, c), Color(x, y, z)) => (a, b, c) == (x, y, z),
             (Host(a), Host(b)) => a == b,
             (List(a), List(b)) => {
                 Rc::ptr_eq(a, b) || {
@@ -455,6 +459,7 @@ impl fmt::Display for Value {
                 let (y, m, dd) = civil_from_days(*d);
                 write!(f, "date( {y}, {m}, {dd} )")
             }
+            Value::Color(r, g, b) => write!(f, "rgb( {r}, {g}, {b} )"),
             Value::Script(i) => write!(f, "<script {i}>"),
             Value::Object(o) => write!(f, "<offspring script {}>", o.borrow().script),
             Value::Host(h) => match h {

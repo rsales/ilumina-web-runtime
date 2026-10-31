@@ -3,6 +3,7 @@
 //! the Xtras the original code calls (BuddyAPI, FileIO; Valentina in M3).
 //! No I/O: the disc files come through [`vfs::DiscFiles`].
 
+pub mod binaryio;
 pub mod host;
 pub mod mui;
 pub mod v4md;

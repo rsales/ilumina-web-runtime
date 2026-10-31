@@ -20,6 +20,26 @@ pub struct MemberInfo {
     pub script: Option<usize>,
     /// Bitmap geometry: (width, height, regX, regY, depth).
     pub bitmap: Option<(i64, i64, i64, i64, i64)>,
+    /// Text of field and text members (plain, `\r` line breaks); set by
+    /// `member.text = …` at run time.
+    pub text: Option<String>,
+}
+
+/// Plain text of a field (STXT) or text (XMED) member, if it has one.
+fn member_text(movie: &rifx::Movie, m: &rifx::cast::Member) -> Option<String> {
+    use rifx::FourCC;
+    if let Some(s) = movie.children(m.section, FourCC::new(b"XMED")).next() {
+        let d = movie.chunk_data(s).ok()?;
+        // Flash Asset members also use XMED; their data is a SWF.
+        if !d.starts_with(b"FFFF") {
+            return None;
+        }
+        return rifx::text::parse_xmed(d).ok().map(|t| t.text);
+    }
+    let s = movie.children(m.section, FourCC::new(b"STXT")).next()?;
+    rifx::text::parse_stxt(movie.chunk_data(s).ok()?, &|_| None)
+        .ok()
+        .map(|t| t.text)
 }
 
 /// State of one FileIO instance.
@@ -62,7 +82,11 @@ pub struct PlayerHost {
     pub responder: Box<dyn crate::mui::Responder>,
     /// Dialogs shown: "title: item types".
     pub dialogs_shown: Vec<String>,
+    /// Network requests the program made (host part only: the bodies of the
+    /// registration post carry the owner's data).
+    pub network: Vec<String>,
     dialogs: HashMap<i64, crate::mui::Dialog>,
+    binfiles: HashMap<i64, crate::binaryio::BinFile>,
 }
 
 fn arg(args: &[Value], i: usize) -> Value {
@@ -138,6 +162,9 @@ pub fn ini_set(text: &str, section: &str, key: &str, value: &str) -> String {
 
 impl PlayerHost {
     pub fn new(vfs: Vfs) -> Self {
+        let mut settings = HashMap::new();
+        // `the actorList`: objects that get `stepFrame` every frame.
+        settings.insert("actorlist".to_string(), Value::list(vec![]));
         PlayerHost {
             vfs,
             members: Vec::new(),
@@ -149,13 +176,15 @@ impl PlayerHost {
             today: (2026, 1, 1),
             stage: (1024, 768),
             screen: (1024, 768),
-            settings: HashMap::new(),
+            settings,
             files: HashMap::new(),
             next_id: 1,
             v4md: Default::default(),
             responder: Box::new(crate::mui::CloseAll),
             dialogs_shown: Vec::new(),
+            network: Vec::new(),
             dialogs: HashMap::new(),
+            binfiles: HashMap::new(),
         }
     }
 
@@ -207,10 +236,14 @@ impl PlayerHost {
                         b.depth as i64,
                     )
                 });
+            let text = matches!(kind, "field" | "text")
+                .then(|| member_text(movie, &m))
+                .flatten();
             self.members.push(MemberInfo {
                 lib,
                 number: m.number,
                 bitmap,
+                text,
                 script: scripts.get(&m.number).copied(),
                 name: m.name,
                 kind: kind.into(),
@@ -234,6 +267,9 @@ impl PlayerHost {
         }
         if kind.eq_ignore_ascii_case("mui") {
             self.dialogs.insert(id, crate::mui::Dialog::default());
+        }
+        if kind.eq_ignore_ascii_case("binaryio") {
+            self.binfiles.insert(id, Default::default());
         }
         Value::Host(HostRef::Object {
             kind: kind.to_string(),
@@ -400,6 +436,30 @@ impl lingo_vm::Host for PlayerHost {
                 _ => return Ok(None),
             },
             "member" => self.member_value(&a0, args.get(1)),
+            // `register(xtra "X", key)`: an Xtra vendor's licence string for
+            // their own Xtra; this reimplementation needs none.
+            "register" if matches!(a0, Value::Host(HostRef::Xtra(_))) => Value::Int(0),
+            // --- NetLingo: the publisher's servers are gone; every request
+            // fails to connect (4146), as it does on the Wine runtime today.
+            "postnettext" | "getnettext" | "downloadnetthing" | "preloadnetthing" => {
+                let url = a0.to_text();
+                let host_part = url
+                    .split("://")
+                    .nth(1)
+                    .unwrap_or(&url)
+                    .split('/')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                self.network.push(format!("{name} {host_part}"));
+                let id = self.next_id;
+                self.next_id += 1;
+                Value::Int(id)
+            }
+            "netdone" => Value::Int(1),
+            "neterror" => Value::Int(4146),
+            "nettextresult" => Value::str(""),
+            "netabort" => Value::Void,
             "__scriptofmember" => match &a0 {
                 Value::Host(HostRef::Member { lib, number }) => {
                     let m = self
@@ -603,6 +663,13 @@ impl lingo_vm::Host for PlayerHost {
                     return Ok(Some(v));
                 }
             }
+            if kind.eq_ignore_ascii_case("binaryio") {
+                if let Some(f) = self.binfiles.get_mut(id) {
+                    if let Some(v) = f.method(&mut self.vfs, name, args) {
+                        return Ok(Some(v));
+                    }
+                }
+            }
             if kind.eq_ignore_ascii_case("mui") {
                 if let Some(v) = self.mui_method(_vm, *id, name, args)? {
                     return Ok(Some(v));
@@ -610,6 +677,10 @@ impl lingo_vm::Host for PlayerHost {
             }
         }
         if let HostRef::Xtra(x) = target {
+            // `xtra("X").register(key)`: see `register` in `call`.
+            if name.eq_ignore_ascii_case("register") {
+                return Ok(Some(Value::Int(0)));
+            }
             if name.eq_ignore_ascii_case("new") {
                 let x = x.clone();
                 return Ok(Some(self.new_object(&x, args)));
@@ -644,6 +715,7 @@ impl lingo_vm::Host for PlayerHost {
                     ("name", Some(m)) => Value::Str(m.name),
                     ("type", Some(m)) => Value::Symbol(m.kind),
                     ("type", None) => Value::sym("empty"),
+                    ("text", Some(MemberInfo { text: Some(t), .. })) => Value::Str(t),
                     (
                         "width",
                         Some(MemberInfo {
@@ -715,8 +787,22 @@ impl lingo_vm::Host for PlayerHost {
         _vm: &mut Vm,
         target: &HostRef,
         name: &str,
-        _value: &Value,
+        value: &Value,
     ) -> HostResult<bool> {
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("text") {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    if matches!(m.kind.as_str(), "field" | "text") {
+                        m.text = Some(value.to_text());
+                        return Ok(true);
+                    }
+                }
+            }
+        }
         self.note(format!("set {}.{name}", Value::Host(target.clone()).ilk()));
         Ok(false)
     }
@@ -760,7 +846,8 @@ impl lingo_vm::Host for PlayerHost {
             | "updatelock"
             | "cursor"
             | "alertHook"
-            | "alerthook" => {
+            | "alerthook"
+            | "actorlist" => {
                 self.settings.insert(lname, value.clone());
                 Ok(true)
             }
@@ -955,6 +1042,7 @@ impl PlayerHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lingo_vm::Host;
 
     #[test]
     fn ini_read_and_write() {
@@ -970,5 +1058,79 @@ mod tests {
         );
         let t4 = ini_set("", "New", "K", "V");
         assert_eq!(ini_get(&t4, "New", "K").as_deref(), Some("V"));
+    }
+
+    struct NoDisc;
+    impl crate::vfs::DiscFiles for NoDisc {
+        fn read(&self, _: &str) -> Option<Vec<u8>> {
+            None
+        }
+    }
+
+    #[test]
+    fn field_text_can_be_set() {
+        // Regression: Db.Comp.new stopped at `member("OSMenu_Reference").text
+        // = …` (set member.text was not implemented).
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        for (number, kind) in [(1, "field"), (2, "bitmap")] {
+            host.members.push(MemberInfo {
+                lib: 1,
+                number,
+                name: String::new(),
+                kind: kind.into(),
+                script: None,
+                bitmap: None,
+                text: None,
+            });
+        }
+        let field = HostRef::Member { lib: 1, number: 1 };
+        assert!(host
+            .set_prop(&mut vm, &field, "text", &Value::str("a\rb"))
+            .unwrap());
+        let got = host.get_prop(&mut vm, &field, "TEXT").unwrap().unwrap();
+        assert_eq!(got.to_text(), "a\rb");
+        let bitmap = HostRef::Member { lib: 1, number: 2 };
+        assert!(!host
+            .set_prop(&mut vm, &bitmap, "text", &Value::str("x"))
+            .unwrap());
+    }
+
+    #[test]
+    fn actor_list_and_offline_netlingo() {
+        // Regression: with the owner's data, Poster.POST stopped at
+        // `add the actorList, me` (the actorList was not implemented).
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        let l = host.the(&mut vm, "actorList").unwrap().unwrap();
+        assert_eq!(l.ilk(), "list");
+        assert!(host
+            .set_the(&mut vm, "actorList", &Value::list(vec![]))
+            .unwrap());
+        // The publisher's servers are gone: requests fail like on Wine (4146),
+        // and only the host name is recorded.
+        let id = host
+            .call(
+                &mut vm,
+                "postNetText",
+                &[Value::str("http://example.invalid/a?b=c")],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            host.call(&mut vm, "netDone", std::slice::from_ref(&id))
+                .unwrap()
+                .unwrap()
+                .to_int(),
+            1
+        );
+        assert_eq!(
+            host.call(&mut vm, "netError", &[id])
+                .unwrap()
+                .unwrap()
+                .to_int(),
+            4146
+        );
+        assert_eq!(host.network, ["postNetText example.invalid"]);
     }
 }

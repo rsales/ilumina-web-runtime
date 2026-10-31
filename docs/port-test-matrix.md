@@ -70,7 +70,28 @@ Slices, each with its own check:
      owner's own `ILUMINA_REG_NAME`/`EMAIL`/`CEP` (the Wine runtime's
      variables) into the text fields in order and presses the button, never
      generated values. The disc test masks those values in its output.
-   - ⏳ Run with the owner's data on the Mac to set the next ratchet step.
+   - ✅ Owner run on the Mac (2026-10-31, values masked): the registration
+     dialog accepts the owner's data, and `init` continues to `Poster.POST`,
+     which needed `the actorList`. Now implemented, with offline NetLingo
+     (`postNetText` … `netError` = 4146, as on Wine; only host names are
+     recorded). The owner-mode test asserts it never stops at the
+     registration dialog or `the actorList` again.
+   - ✅ Post-registration managers (component disc test
+     `home_managers_build`, no owner data needed): all 14 objects `init`
+     creates after `POST` build (AddOnMgr, the five `Db.*` databases, Bible,
+     Find, MenuMgr, Anims, Photos, Maps, Audio, Db.TT), then
+     `UnlockAnimations`/`UnlockGTVs` and `new(script "Home Module")` run.
+     Fixed on the way: `member.text = …` for fields/text members (texts are
+     now read from the casts), `rgb()` colors, the BinaryIO Xtra (writes are
+     byte patches in the virtual FS; originals untouched) and
+     `register(xtra …)` (an Xtra vendor's licence string; a no-op here).
+   - CMediaLock: at every start the program rewrites the first 25 bytes of
+     83 media files (`Media.vdb`/`Tours.vdb` `bin` column). The patched files
+     are valid QuickTime/MP4 headers (asserted on three). The disc copies
+     already start with valid headers. ⏳ Check whether the patch bytes
+     equal the disc bytes, which matters for `media-prep`.
+   - Next stop (ratchet): `startMovie` → `Nav.mSetPrevAndNextButtons` →
+     `sendSprite`, i.e. slice 3 (sprites and behaviors).
    - The disc test is a ratchet: it asserts where each event stops and fails
      if the run regresses or gets further without the table being updated.
    - The host reports a 1024×768 desktop like the Wine reference

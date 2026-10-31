@@ -35,6 +35,15 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 2, latest (2026-10-31):** the owner's run passed registration
+and stopped at `the actorList` in `Poster.POST`; that, offline NetLingo,
+BinaryIO (media unlock as byte patches), `rgb()` and `member.text` are now
+implemented. The component test `home_managers_build` builds all 14
+post-registration managers and runs `UnlockAnimations`/`UnlockGTVs` and
+`Home Module`; `startMovie` then stops at `sendSprite` = slice 3 (sprites
+and behaviors). Next: owner reruns the disc test with `ILUMINA_REG_*`; then
+slice 3.
+
 **M2 slice 2 in progress (2026-10-31):** `crates/player` (virtual file
 system, properties, BuddyAPI, FileIO, prefs, V4MD over `crates/valentina`,
 Mui dialogs with a `Responder`). Home's `prepareMovie` shows the first-run

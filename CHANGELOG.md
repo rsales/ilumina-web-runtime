@@ -26,6 +26,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Port player: `the actorList`, offline NetLingo (requests fail with 4146 as
+  on Wine), the BinaryIO Xtra over byte patches in the virtual file system,
+  `rgb()` colors and settable field/text `member.text`. With the owner's
+  registration data Home's `init` gets past registration; every manager it
+  creates afterwards now builds (disc test `home_managers_build`).
 - `player::mui`: the Mui dialog Xtra with a `Responder` (close, or the
   owner's own registration data from `ILUMINA_REG_*`); Home's startup now
   shows the first-run registration dialog as on Wine.

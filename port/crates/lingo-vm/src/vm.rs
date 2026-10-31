@@ -418,6 +418,14 @@ impl Vm {
                 _ => return Err(format!("rect has no property #{name}")),
             },
             Value::Str(s) if lname == "length" => Value::Int(s.chars().count() as i64),
+            Value::Color(r, g, b) => match lname.as_str() {
+                "red" => Value::Int(*r as i64),
+                "green" => Value::Int(*g as i64),
+                "blue" => Value::Int(*b as i64),
+                "colortype" => Value::sym("rgb"),
+                "hexstring" => Value::Str(format!("#{r:02X}{g:02X}{b:02X}")),
+                _ => return Err(format!("color has no property #{name}")),
+            },
             Value::Date(d) => {
                 let (y, m, dd) = crate::value::civil_from_days(*d);
                 match lname.as_str() {
