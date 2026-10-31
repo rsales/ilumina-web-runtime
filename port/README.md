@@ -14,8 +14,9 @@ Milestone **M0** (spike). See [docs/port-test-matrix.md](../docs/port-test-matri
 | Crate | What | Status |
 |---|---|---|
 | `crates/rifx` | RIFX/XFIR container, cast members, Lingo contexts, bytecode disassembler | ✅ parses all 29 movies |
-| `crates/xtask` | Local tooling (`inventory`), output to `work/` | ✅ |
-| `lingo-vm`, `director`, `valentina`, `xtras`, `media-prep`, `web` | see ADR 0008 | created when their milestone starts |
+| `crates/valentina` | Valentina 1.x reader: pages, catalog, tables, fixed fields, slot-heap text, BLOBs | ✅ reads all 15 databases |
+| `crates/xtask` | Local tooling (`inventory`, `valentina` CSV dump), output to `work/` | ✅ |
+| `lingo-vm`, `director`, `xtras`, `media-prep`, `web` | see ADR 0008 | created when their milestone starts |
 
 ## Commands
 
@@ -25,6 +26,7 @@ cargo test                                    # unit tests (no discs needed)
 cargo build -p rifx --target wasm32-unknown-unknown   # wasm build check
 ILUMINA_DISCS=../discs cargo test             # + structural test over the real movies
 cargo run -p xtask -- inventory ../discs ../work/inventory
+cargo run -p xtask -- valentina ../discs/cd1/Program/Files/Databases/KJV.DAT ../work/valentina
 ```
 
 `ILUMINA_DISCS` points at the folder that holds `cd1`…`cd4` (the same layout as the Wine runtime). A relative path is resolved from `port/`.

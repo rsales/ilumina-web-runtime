@@ -55,3 +55,13 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   Normal machines just pull it.
 
 - **`cargo test` runs integration tests from the crate dir** (`port/crates/rifx`), so a relative `ILUMINA_DISCS` used to resolve wrongly (2026-10-30, Mac). The test now resolves relative paths from `port/`.
+
+- **Valentina files start with a 1 KB header, then whole pages** (2026-10-30).
+  Read as 32 KB pages from offset 0, every page seemed to start with a 1 KB
+  "page header", and a slot heap looked like it skipped a slot at page
+  boundaries. Both were artifacts of the 1 KB shift. With page id `n` at
+  `0x400 + (n-1)*page_size`, the chain table and the slots line up exactly.
+- **KJV text and RA text are stored differently.** KJV uses a VarChar-like
+  slot heap in the `.dat` (schema type 26). RA/RC/NTLH and the encyclopedia
+  use Text/BLOB (type 17) in the `.blb`. A reader has to support both.
+

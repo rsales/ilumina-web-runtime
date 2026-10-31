@@ -11,6 +11,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   with the outcome "redirect"): Rust Director MX player, WASM first. M0 so far:
   the `rifx` crate parses all 29 movies and disassembles all Lingo bytecode,
   `xtask inventory` exists, and the Valentina and QTVR spikes have started.
+- `port/crates/valentina`: reader for the undocumented Valentina 1.x format
+  (all 15 iLumina databases: KJV slot-heap text, RA/encyclopedia BLOBs) and
+  `xtask valentina`, which dumps CSVs to `work/`.
 - `docs/history.md`: product history, 2005 system requirements and the
   publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision

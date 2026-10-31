@@ -1,0 +1,9 @@
+[package]
+name = "valentina"
+description = "Read-only reader for Valentina 1.x (V4MD) database files, as used by iLumina"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

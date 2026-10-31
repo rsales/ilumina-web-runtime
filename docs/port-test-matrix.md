@@ -7,7 +7,7 @@ stay in `work/`, never in git.
 
 | Milestone | Gate | Status |
 |---|---|---|
-| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ⚠️ partly done, see below |
+| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ⚠️ parser ✅, Valentina ✅, QTVR and dirplayer-rs pending |
 | M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⏳ |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
@@ -53,19 +53,44 @@ stay in `work/`, never in git.
   - results: `GetRecordSetAsPropList` (61 calls), `GetRecordAsPropList`.
   - That is a cursor and SQL surface, not a raw table API.
 
-### Valentina ⚠️ readable, not parsed yet
+### Valentina ✅ readable (2026-10-30)
 
-- Files are page-based, with a common header (`00 02 20 00 90 01 01 00`, then the
-  page size: 4 KB `.vdb`, 32 KB `.dat/.ind/.blb`). They are **not encrypted**.
-- The schema is stored as text records in the `.vdb`. For example table
-  `KJV`: `Book`, `Chapter`, `Verse` (type 3), `Text`, `Title` (type 26, ASCII).
-- KJV verse text is **plain** in `KJV.DAT`. Text pages carry a trailer of
-  u16 offsets plus a count. Those offsets are not verse boundaries, so the
-  record-to-text mapping is the next thing to work out.
-- The Portuguese versions (RA…) keep their text in `.BLB`.
-- **Fallback if the format resists:** export every table once through the
-  original V4MD Xtra under the Wine runtime (oracle) into a local SQLite
-  file, and have the port read that.
+The format was worked out from iLumina's own files, since there is no public
+documentation. The reader is `port/crates/valentina`, and its layout notes are
+in the crate docs.
+
+- **Container:** a 1 KB file header, then 32 KB pages with 1-based ids.
+  - Page 1 is the page-chain table.
+  - Page 2 is the catalog of segments: `id, pages, size, kind, field`. A
+    segment's id is also the id of its first page.
+  - Every table starts with a record-bitmap segment (field 0), so a file
+    with several tables splits at those.
+- **Field storage:**
+  - Fixed-width fields have `size / records` bytes each; booleans are packed one bit per record.
+  - **VarChar-like text** (KJV) is a slot heap of 1 KB slots in the `.dat`.
+    Each slot's trailer holds the offsets of the values it contains, and an
+    index segment (kind 12) gives the first record of each slot.
+  - **Text/BLOB** (RA, RC, NTLH, encyclopedia) is a 4-byte pointer to a chain
+    of 128-byte segments in the `.blb`. Each segment has a 32-byte header:
+    `next, first, part, len, total`.
+- **Evidence:** `ILUMINA_DISCS=… cargo test -p valentina`, with 4 tests passing:
+  - **KJV:** all 31,102 verses with text. Record 1 is (1,1,1).
+    Per-book verse counts are canonical (Genesis 1,533, Psalms 2,461,
+    Revelation 404), and (book, chapter, verse) is unique.
+  - **RA:** every one of the 31,104 records has a BLOB. Gênesis 1:1 is 43
+    bytes, the same as the published text.
+  - **Ency:** splits into tables; Articles has 1,774 records.
+  - **All 15 `.dat` files** open.
+  - `xtask valentina <file.dat>` dumps every table of all 15 databases to CSV
+    in `work/valentina/` without errors (36 tables).
+- Records are 1-based and stored in insertion order, not canonical order.
+- Encyclopedia text uses HTML entities plus iLumina markup (`+~…`). That
+  matches the `ImlToHtml` handler in the Lingo.
+- **Still to do:**
+  - field names and types from the `.vdb` schema;
+  - honouring the deleted-record bitmap;
+  - `.ind` indexes, which are optional because tables are small enough to scan in memory;
+  - the SQL subset that the Lingo sends through `ExecuteSql` and `GetCursor`.
 
 ### QTVR ⚠️ faces OK, hotspots and graph pending
 

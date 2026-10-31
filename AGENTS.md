@@ -83,7 +83,7 @@ docker compose up -d && docker compose logs ilumina | grep "xpra is ready"
 ```sh
 # 5. Rust port (port/)
 cd port && cargo test && cargo clippy
-ILUMINA_DISCS=../discs cargo test        # → 29 movies, 2018 members, 446 scripts
+ILUMINA_DISCS=../discs cargo test        # → 29 movies, 2018 members, 446 scripts; KJV 31102 verses
 ```
 
 GUI automation broke? Use [docs/runbooks/debugging-gui-automation.md](docs/runbooks/debugging-gui-automation.md).
@@ -100,5 +100,5 @@ GUI automation broke? Use [docs/runbooks/debugging-gui-automation.md](docs/runbo
 | `runtime/auto-activate.sh` | Optional: types the owner's `.env` data into first-run dialogs |
 | `tools/` | Disc extraction and SHA-256 verification |
 | `manifests/` | Hashes of the supported disc set |
-| `port/` | Rust Director MX player (experiment, ADR 0008): `crates/rifx` parser, `crates/xtask` local tooling |
+| `port/` | Rust Director MX player (experiment, ADR 0008): `crates/rifx` movie parser, `crates/valentina` database reader, `crates/xtask` local tooling |
 | `docs/` | Canonical documentation, see [docs/README.md](docs/README.md) |
