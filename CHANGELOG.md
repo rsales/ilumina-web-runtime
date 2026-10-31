@@ -17,6 +17,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `port/crates/qtvr`: QuickTime VR reader (node graph, links, cubic view
   limits, `smc` hotspot maps; all 24 tours parse) and `xtask qtvr`, which
   writes JSON to `work/`.
+- Port M1 (in progress): hash gate (`crates/discs`, `xtask verify`), bitmap
+  decoding (all 1,288 `BITD`, palette from the user's projector), D6+ score
+  and cast list, and a native compositor (`crates/director`, `xtask render`)
+  that draws bitmaps and shapes for a score frame.
 - `docs/history.md`: product history, 2005 system requirements and the
   publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision

@@ -8,12 +8,65 @@ stay in `work/`, never in git.
 | Milestone | Gate | Status |
 |---|---|---|
 | M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
-| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⏳ |
+| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score); text, browser canvas and SSIM pending |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
 | M4 multimedia | Animations and tours play; QTVR node switches and hotspots work | ⏳ |
 | M5 rest | Parity with `compatibility.md`, including Mui registration/activation running the original Lingo | ⏳ |
 | M6 polish | Crisp scaling, static deploy, timings on the Mac mini M4 | ⏳ |
+
+## M1 — static Home (started 2026-10-30)
+
+### Hash gate ✅
+
+- `port/crates/discs` embeds `manifests/ilumina-gold-2.50-ptbr.sha256`. Each
+  file the engine loads goes through `check_file`, so an unknown or modified
+  file is refused.
+- `xtask verify <discs>` prints `OK: 3297 files match ilumina-gold-2.50-ptbr`.
+  It took 2.5 min in the sandbox, which is I/O-bound.
+
+### Bitmaps ✅ (8-bit colours ⚠️)
+
+- `rifx::bitmap` reads the member header (pitch, rect, reg point, depth,
+  palette) and decodes `BITD`, raw or RLE. 16-bit is planar RGB555 and 32-bit
+  is planar ARGB.
+- **1,288 of 1,288 `BITD` decode.** By depth: 1,137 at 16 bits, 74 at 32, 68 at
+  8, 9 at 1. The other 29 bitmap members are linked JPEGs under `Files/Media`
+  or empty placeholders whose image Lingo sets at runtime. Checked by
+  `cargo test -p rifx --test bitmaps`.
+- **8-bit palette:** "System - Win" (-101) is read from the user's own
+  `iLumina.exe`, where it sits as 256 BGRX entries, instead of being embedded.
+  The index→colour mapping still needs to be confirmed against Wine.
+- `xtask bitmaps <discs>` exports every bitmap as PNG to `work/bitmaps/`.
+
+### Score and cast list ✅
+
+- `rifx::score` reads the D6+ `VWSC` frame stream (delta-compressed,
+  48-byte records, 1,006 channels) and `MCsL` (cast libs → external `.cst`,
+  which ship as `.cxt`).
+- `Home.dxr` has 160 frames. Frame 1 has 49 sprites across five cast libs
+  (Internal, LocalCode, LocalAssets, GlobalCode, GlobalAssets).
+- `xtask score <movie.dxr> [frame]` lists the sprites.
+
+### Compositing ⚠️ native only
+
+- `port/crates/director`: `Stage::load` (through a `Files` provider; natively
+  the hash-gated disc reader) and `render(frame)`.
+  - Bitmaps are placed at loc − reg point and scaled to the sprite rect.
+  - Inks: copy; white as transparent for inks 1, 8 and 36; 32-bit alpha; blend.
+  - Shapes: rectangle, oval and line, in the sprite's RGB or palette colour.
+- `xtask render <discs> Home.dxr 1` → `work/render/Home-1.png`.
+  - Home frame 1: 27 sprites drawn, 22 skipped.
+  - **MediaCenter frame 1, compared by eye with a Boxedwine screenshot:**
+    the layout, the purple bars, the circles, the photos and the connecting
+    lines match.
+- **Missing:**
+  - text: the `text` Xtra members (XMED styled text) and fields (`STXT`),
+    for example the top menu and the editions text;
+  - linked JPEGs, which Lingo loads at runtime;
+  - some positions that Lingo changes at runtime (the "a" before "Bíblia");
+  - the browser canvas (WASM);
+  - SSIM against a Wine screenshot of Home (none has been captured yet).
 
 ## M0 — spike (started 2026-10-30)
 

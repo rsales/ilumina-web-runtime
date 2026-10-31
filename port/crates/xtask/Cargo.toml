@@ -10,3 +10,6 @@ publish.workspace = true
 rifx = { path = "../rifx" }
 valentina = { path = "../valentina" }
 qtvr = { path = "../qtvr" }
+discs = { path = "../discs" }
+director = { path = "../director" }
+png = "0.17"

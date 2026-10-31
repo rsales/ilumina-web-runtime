@@ -10,11 +10,13 @@
 //! Director engine, "Shockwave Director file format" notes); no code is
 //! copied from those projects.
 
+pub mod bitmap;
 pub mod bytecode;
 pub mod cast;
 pub mod container;
 pub mod lingo;
 pub mod reader;
+pub mod score;
 
 pub use container::{Chunk, Movie};
 pub use reader::{Endian, FourCC};

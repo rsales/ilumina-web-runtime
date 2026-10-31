@@ -1,6 +1,7 @@
 //! Local-only tooling for the port (ADR 0008). Output goes to `work/`,
 //! which is git-ignored: inventories contain names from the original movies.
 //!
+//!   cargo run -p xtask -- verify <discs-dir>
 //!   cargo run -p xtask -- inventory <discs-dir> [out-dir]
 //!   cargo run -p xtask -- valentina <file.dat> [out-dir]
 //!   cargo run -p xtask -- qtvr <tour.mov> [out-dir]
@@ -48,8 +49,70 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("verify") if args.len() >= 2 => {
+            let entries =
+                discs::parse_manifest(discs::ILUMINA_GOLD_250_PTBR).expect("embedded manifest");
+            match discs::verify(Path::new(&args[1]), &entries) {
+                Ok(r) if r.is_ok() => println!("OK: {} files match ilumina-gold-2.50-ptbr", r.ok),
+                Ok(r) => {
+                    for p in &r.missing {
+                        eprintln!("missing: {p}");
+                    }
+                    for p in &r.mismatched {
+                        eprintln!("modified: {p}");
+                    }
+                    eprintln!(
+                        "MISMATCH: {} ok, {} missing, {} modified",
+                        r.ok,
+                        r.missing.len(),
+                        r.mismatched.len()
+                    );
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some("render") if args.len() >= 3 => {
+            let frame = args.get(3).and_then(|f| f.parse().ok()).unwrap_or(1);
+            let out = args.get(4).map(PathBuf::from).unwrap_or_else(|| {
+                PathBuf::from(format!(
+                    "work/render/{}-{frame}.png",
+                    args[2].trim_end_matches(".dxr")
+                ))
+            });
+            if let Err(e) = render(Path::new(&args[1]), &args[2], frame, &out) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some("score") if args.len() >= 2 => {
+            let frame = args.get(2).and_then(|f| f.parse().ok()).unwrap_or(1);
+            if let Err(e) = score_dump(Path::new(&args[1]), frame) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some("bitmaps") if args.len() >= 2 => {
+            let out = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("work/bitmaps"));
+            if let Err(e) = bitmaps_dump(Path::new(&args[1]), &out) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         _ => {
-            eprintln!("usage: xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "usage: xtask verify <discs-dir>                # hash gate against the manifest"
+            );
+            eprintln!(
+                "       xtask bitmaps <discs-dir> [out-dir]      # every bitmap as PNG, local only"
+            );
+            eprintln!("       xtask inventory <discs-dir> [out-dir]");
             eprintln!(
                 "       xtask qtvr <tour.mov> [out-dir]         # node graph as JSON, local only"
             );
@@ -406,5 +469,193 @@ fn qtvr_dump(mov: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::Error
         t.panos.len(),
         path.display()
     );
+    Ok(())
+}
+
+pub fn write_png(
+    path: &Path,
+    w: usize,
+    h: usize,
+    rgba: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut enc = png::Encoder::new(f, w as u32, h as u32);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header()?.write_image_data(rgba)?;
+    Ok(())
+}
+
+/// Export every bitmap member of every cast as PNG (local inspection only).
+fn bitmaps_dump(discs: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    use rifx::bitmap::{bitd_for, system_win_palette, to_rgba, unpack, BitmapInfo};
+    let pal = system_win_palette(&std::fs::read(discs.join("cd1/Program/iLumina.exe"))?)
+        .ok_or("System - Win palette not found")?;
+    let mut n = 0;
+    for path in movie_files(discs)? {
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        let data = std::fs::read(&path)?;
+        let movie = Movie::parse(&data)?;
+        let dir = out_dir.join(&stem);
+        for m in members(&movie)?
+            .iter()
+            .flatten()
+            .filter(|m| m.kind == MemberType::Bitmap)
+        {
+            let info = BitmapInfo::parse(&m.specific)?;
+            let Some(bitd) = bitd_for(&movie, m.section) else {
+                continue;
+            };
+            let rgba = to_rgba(&info, &unpack(&info, bitd?)?, Some(&pal))?;
+            if info.width == 0 || info.height == 0 {
+                continue;
+            }
+            std::fs::create_dir_all(&dir)?;
+            let safe: String = m
+                .name
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            write_png(
+                &dir.join(format!("{:04}-{safe}.png", m.number)),
+                info.width,
+                info.height,
+                &rgba,
+            )?;
+            n += 1;
+        }
+    }
+    println!("{n} bitmaps -> {}", out_dir.display());
+    Ok(())
+}
+
+/// Print a movie's cast libraries and the sprites of one frame.
+fn score_dump(movie_path: &Path, frame: usize) -> Result<(), Box<dyn std::error::Error>> {
+    use rifx::score::{cast_libs, Score};
+    let data = std::fs::read(movie_path)?;
+    let movie = Movie::parse(&data)?;
+    let libs = cast_libs(&movie)?;
+    for l in &libs {
+        println!(
+            "castLib {}: {:?} path={:?} members {}..{}",
+            l.number, l.name, l.path, l.min_member, l.max_member
+        );
+    }
+    let Some(score) = Score::from_movie(&movie)? else {
+        println!("no score");
+        return Ok(());
+    };
+    println!(
+        "{} frames, {} channels x {} bytes; frame {frame} script {:?}",
+        score.frame_count,
+        score.channels,
+        score.record_size,
+        score.frame_script(frame)
+    );
+    let dir = movie_path.parent().unwrap_or(Path::new("."));
+    let mut cache: std::collections::HashMap<u16, Vec<rifx::cast::Member>> = Default::default();
+    for s in score.sprites(frame)? {
+        let lib = libs.iter().find(|l| l.number == s.cast_lib);
+        let name = lib.and_then(|l| {
+            // Protected movies reference `.cst`; the shipped files are `.cxt`.
+            let file = l
+                .path
+                .rsplit(['\\', ':', '/'])
+                .next()?
+                .replace(".cst", ".cxt");
+            let members = cache.entry(l.number).or_insert_with(|| {
+                std::fs::read(dir.join(&file))
+                    .ok()
+                    .and_then(|d| {
+                        Movie::parse(&d)
+                            .ok()
+                            .and_then(|m| members(&m).ok())
+                            .map(|c| c.into_iter().flatten().collect())
+                    })
+                    .unwrap_or_default()
+            });
+            members
+                .iter()
+                .find(|m| m.number == s.member as u32)
+                .map(|m| format!("{:?} {:?}", m.kind, m.name))
+        });
+        println!(
+            "  sprite {:3}: lib {} member {:4} ink {:2} blend {:3} rect ({}, {}) {}x{}  {}",
+            s.number,
+            s.cast_lib,
+            s.member,
+            s.ink,
+            s.blend,
+            s.left,
+            s.top,
+            s.width,
+            s.height,
+            name.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Movie files read from disk through the hash gate.
+struct GatedFiles {
+    root: PathBuf,
+    manifest: Vec<discs::Entry>,
+}
+
+impl director::Files for GatedFiles {
+    fn read(&self, name: &str) -> Option<Vec<u8>> {
+        let rel = format!("cd1/Program/Files/{name}");
+        match discs::check_file(&self.root, &rel, &self.manifest) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                eprintln!("hash gate: {e}");
+                None
+            }
+        }
+    }
+}
+
+/// Composite one score frame of a movie to PNG (local inspection only).
+fn render(
+    discs: &Path,
+    movie: &str,
+    frame: usize,
+    out: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest = discs::parse_manifest(discs::ILUMINA_GOLD_250_PTBR)?;
+    let exe = discs::check_file(discs, "cd1/Program/iLumina.exe", &manifest)?;
+    let palette = rifx::bitmap::system_win_palette(&exe).ok_or("System - Win palette not found")?;
+    let files = GatedFiles {
+        root: discs.to_path_buf(),
+        manifest,
+    };
+    let stage = director::Stage::load(&files, movie, palette)?;
+    let (px, report) = stage.render(frame)?;
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    write_png(
+        out,
+        stage.config.width as usize,
+        stage.config.height as usize,
+        &px,
+    )?;
+    println!(
+        "{movie} frame {frame}: {}x{} stage, {} sprites drawn, {} skipped -> {}",
+        stage.config.width,
+        stage.config.height,
+        report.drawn.len(),
+        report.skipped.len(),
+        out.display()
+    );
+    for (n, why) in &report.skipped {
+        println!("  sprite {n}: {why}");
+    }
     Ok(())
 }

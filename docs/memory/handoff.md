@@ -35,11 +35,11 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
-**Next: M1, static Home.** Decode `BITD` bitmaps, `CLUT` palettes and
-`STXT`/`XMED` text. Parse frame 1 of the `VWSC` score and the `MCsL` cast
-links. Then render the Home stage at 1024×768 into a canvas (WASM), and
-compare it with a Wine screenshot locally (SSIM, in `work/`). Also add the
-manifest hash gate.
+**M1 in progress:** hash gate ✅, bitmaps ✅, score ✅, native compositor ⚠️.
+`xtask render <discs> Home.dxr 1` writes a PNG. MediaCenter frame 1 matches
+Boxedwine's layout by eye. Next: XMED/STXT text, the WASM canvas shell
+(`port/crates/web`), and a Wine screenshot of Home for SSIM. 8-bit palette
+indices are still to be confirmed.
 
 ## Next steps (in priority order)
 

@@ -77,6 +77,27 @@ pub struct Member {
     pub specific: Vec<u8>,
 }
 
+impl Member {
+    /// For linked media (bitmaps loaded from a file at runtime): the
+    /// original Windows path stored in the member info, e.g.
+    /// `F:\\iLumina Portuguese\\Files\\Media\\Thumbnails` + file name.
+    pub fn linked_path(&self) -> Option<String> {
+        let texts: Vec<String> = self
+            .info
+            .iter()
+            .skip(2)
+            .filter(|b| !b.is_empty())
+            .map(|b| pascal_or_raw(b))
+            .collect();
+        let dir = texts.iter().find(|t| t.contains('\\'))?;
+        let file = texts.iter().find(|t| !t.contains('\\') && t.contains('.'));
+        Some(match file {
+            Some(f) if !dir.ends_with(f.as_str()) => format!("{dir}\\{f}"),
+            _ => dir.clone(),
+        })
+    }
+}
+
 /// All members of every `CAS*` table in the file, in slot order.
 pub fn members(movie: &Movie) -> Result<Vec<Vec<Member>>, Error> {
     let mut casts = Vec::new();
