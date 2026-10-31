@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iLumina port</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #111; color: #ddd; font: 13px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; background: #1b1b1b; }
+  header label { display: flex; gap: 4px; align-items: center; }
+  input[type=number] { width: 5em; }
+  input[type=range] { width: 260px; }
+  #status { margin-left: auto; color: #9a9; font-variant-numeric: tabular-nums; }
+  #status.error { color: #f88; }
+  main { display: grid; place-items: center; padding: 12px; }
+  canvas { background: #000; image-rendering: pixelated; max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<header>
+  <label>Filme <select id="movie"></select></label>
+  <button id="prev" title="Frame anterior (←)">◀</button>
+  <label>Frame <input id="frame" type="number" min="1" value="1"></label>
+  <button id="next" title="Próximo frame (→)">▶</button>
+  <input id="slider" type="range" min="1" value="1">
+  <span id="status">carregando…</span>
+</header>
+<main><canvas id="stage" width="1024" height="768"></canvas></main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

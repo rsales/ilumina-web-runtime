@@ -26,6 +26,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Port browser player: `crates/web` (stage behind a hand-written wasm ABI,
+  fonts from the browser canvas), `port/web/` page and `xtask serve` (local,
+  manifest-only file server). `discs::check_bytes` for fetched files.
 - `discs::locate` / `discs::for_tests`: disc tests find the discs next to the
   repo without `ILUMINA_DISCS`, fail on a wrong value, and
   `ILUMINA_REQUIRE_DISCS=1` turns a skip into a failure. xtask checks its

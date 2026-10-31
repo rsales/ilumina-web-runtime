@@ -8,7 +8,7 @@ stay in `work/`, never in git.
 | Milestone | Gate | Status |
 |---|---|---|
 | M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
-| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score, text); browser canvas pending; SSIM moved to M2 |
+| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score, text); browser player written, first wasm run on the Mac ⏳; SSIM moved to M2 |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
 | M4 multimedia | Animations and tours play; QTVR node switches and hotspots work | ⏳ |
@@ -95,6 +95,28 @@ stay in `work/`, never in git.
 - ⚠️ In the sandbox Verdana falls back to DejaVu Sans (wider), so line breaks
   differ from Windows. On the Mac the real faces are used. Director's
   anti-aliasing threshold and kerning are not modelled.
+
+### Browser player ⏳ (written 2026-10-31, not yet run in a browser)
+
+- `port/crates/web`: the stage behind a hand-written wasm ABI (`alloc`,
+  `file_add`, `needed_files`, `load`, `render`, `frame_ptr`…), so the only
+  requirement is the `wasm32-unknown-unknown` target. Fonts are imported from
+  the page (`js_glyph`, `js_line`), which draws each glyph once on a canvas.
+- `port/web/index.html` + `app.js`: module picker, frame field/slider/keys,
+  URL `#Movie/frame`, timings in the status line.
+- `xtask serve <discs> [port]`: std-only server on 127.0.0.1 that serves the
+  page, the wasm and only manifest-listed disc files.
+- Checked in the sandbox (no wasm target here):
+  - `App` end to end natively over the real discs: Home loads its 4 casts
+    through the hash gate, 1024×768, 160 frames, frame 1 renders.
+  - The `wasm32` branch type-checks (`cargo check` with the cfgs flipped).
+  - A test keeps the page and the module in agreement on export/import names.
+  - Server: page, `app.js` and a disc file served; traversal and non-manifest
+    paths refused; missing wasm reported with the build command.
+  - `js_glyph`/`js_line` in headless Chromium with a fake wasm memory:
+    Verdana 10 gives plausible boxes ("g" descends 3 px, space has advance
+    only), ascent 9 / descent 2.
+- ⏳ First real run: build the wasm on the Mac and open the page.
 
 ### Compositing ⚠️ native only
 

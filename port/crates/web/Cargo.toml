@@ -1,0 +1,15 @@
+[package]
+name = "web"
+description = "Browser player: the director stage behind a small wasm ABI (no wasm-bindgen)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rifx = { path = "../rifx" }
+director = { path = "../director" }
+discs = { path = "../discs" }

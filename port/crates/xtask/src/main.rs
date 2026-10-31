@@ -9,6 +9,7 @@
 //! `<discs-dir>` holds cd1..cd4 (the same layout as the Wine runtime).
 
 mod fonts;
+mod serve;
 
 use rifx::bytecode::disassemble;
 use rifx::cast::{members, MemberType};
@@ -97,6 +98,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("serve") if args.len() >= 2 => {
+            let port = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(8800);
+            if let Err(e) = serve::serve(&discs_root(&args[1]), port) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some("texts") if args.len() >= 2 => {
             let out = args
                 .get(2)
@@ -125,6 +133,9 @@ fn main() {
                 "       xtask bitmaps <discs-dir> [out-dir]      # every bitmap as PNG, local only"
             );
             eprintln!("       xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "       xtask serve <discs-dir> [port]           # browser player on localhost (default 8800)"
+            );
             eprintln!(
                 "       xtask texts <discs-dir> [out-dir]        # text and field members, local only"
             );

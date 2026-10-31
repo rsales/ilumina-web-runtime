@@ -79,17 +79,23 @@ pub fn verify(root: &Path, entries: &[Entry]) -> std::io::Result<Report> {
 
 /// Check a single file the engine is about to load (e.g. `Home.dxr`).
 pub fn check_file(root: &Path, rel: &str, entries: &[Entry]) -> Result<Vec<u8>, String> {
+    let data = std::fs::read(root.join(rel)).map_err(|err| format!("{rel}: {err}"))?;
+    check_bytes(rel, &data, entries)?;
+    Ok(data)
+}
+
+/// Check bytes that were obtained some other way (fetched by the browser).
+pub fn check_bytes(rel: &str, data: &[u8], entries: &[Entry]) -> Result<(), String> {
     let e = entries
         .iter()
         .find(|e| e.path == rel)
         .ok_or(format!("{rel}: not part of the supported release"))?;
-    let data = std::fs::read(root.join(rel)).map_err(|err| format!("{rel}: {err}"))?;
-    if sha256(&data) != e.sha256 {
+    if sha256(data) != e.sha256 {
         return Err(format!(
             "{rel}: hash mismatch (modified or different release)"
         ));
     }
-    Ok(data)
+    Ok(())
 }
 
 /// A file that every complete disc folder has; used to recognise one.
@@ -270,6 +276,14 @@ mod tests {
         assert_eq!((r.ok, r.mismatched.len(), r.missing.len()), (1, 1, 1));
         assert!(check_file(&dir, "cd1/a.txt", &parse_manifest(&text).unwrap()).is_ok());
         assert!(check_file(&dir, "cd1/b.txt", &parse_manifest(&text).unwrap()).is_err());
+        let m = parse_manifest(&text).unwrap();
+        assert!(check_bytes("cd1/a.txt", b"hello", &m).is_ok());
+        assert!(check_bytes("cd1/a.txt", b"hellO", &m)
+            .unwrap_err()
+            .contains("mismatch"));
+        assert!(check_bytes("cd9/x", b"", &m)
+            .unwrap_err()
+            .contains("not part"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -41,9 +41,11 @@ fonts from the host). All 88 XMED and 92 STXT parse; encoding is per document
 (Mac Roman vs Windows-1252, flag in XMED section 1). Home frame 1 has no
 static text: its text members are empty and Lingo fills them, like the icon
 swaps and linked JPEGs. Owner's Boxedwine screenshots of Home and Multimídia
-are in `work/reference/`; pixel parity needs M2. Next: the WASM canvas
-(`port/crates/web`, built on the Mac), then the Lingo VM starting with the
-Home scripts. 8-bit palette indices are still to be confirmed.
+are in `work/reference/`; pixel parity needs M2. The browser player
+(`port/crates/web`, `port/web/`, `xtask serve`) is written and tested natively;
+its first wasm run happens on the Mac (no wasm target in the sandbox). Next:
+the Lingo VM (M2), starting with sprite visibility/puppeting and the Home
+scripts. 8-bit palette indices are still to be confirmed.
 
 ## Next steps (in priority order)
 

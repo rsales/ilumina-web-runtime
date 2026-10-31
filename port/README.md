@@ -19,7 +19,8 @@ Milestone **M1** (static Home) in progress: bitmaps, shapes, score and text rend
 | `crates/discs` | Hash gate: embedded manifest, `verify`, `check_file` | ✅ 3,297 files match |
 | `crates/director` | Stage: cast libs, score frames, compositing (bitmaps, shapes, inks, text through a host `Fonts` trait) | ⚠️ native render; browser canvas pending |
 | `crates/xtask` | Local tooling (`verify`, `inventory`, `valentina`, `qtvr`, `bitmaps`, `texts`, `score`, `render`), output to `work/`; fontdue over host fonts | ✅ |
-| `lingo-vm`, `xtras`, `media-prep`, `web` | see ADR 0008 | created when their milestone starts |
+| `crates/web` | Browser player: the stage behind a hand-written wasm ABI (no wasm-bindgen); page in `port/web/`, fonts from the browser canvas | ⚠️ built on the Mac only |
+| `lingo-vm`, `xtras`, `media-prep` | see ADR 0008 | created when their milestone starts |
 
 ## Commands
 
@@ -38,6 +39,20 @@ cargo run -p xtask -- texts ../discs ../work/texts
 cargo run --release -p xtask -- render ../discs Home.dxr 1 ../work/render/Home-1.png
 cargo run --release -p xtask -- render ../discs Bible.dxr 30 ../work/render/Bible-30.png
 ```
+
+### Browser
+
+```sh
+rustup target add wasm32-unknown-unknown            # once
+cargo build --release -p web --target wasm32-unknown-unknown
+cargo run --release -p xtask -- serve ../../discs   # → http://localhost:8800/
+```
+
+The page lists the modules, renders any score frame (← → keys, slider) and
+keeps the movie and frame in the URL (`#Bible/30`). The server listens on
+127.0.0.1 only and serves the page, the wasm module and the disc files listed
+in the manifest; the wasm side checks every file's hash again. Fonts come from
+the browser (on macOS: Verdana, Georgia… from the system).
 
 Text uses the fonts installed on the machine. On macOS the original faces
 (Verdana, Georgia, Times New Roman, Arial…) are found under
