@@ -77,6 +77,14 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
             }
         }
         "void" => Value::Void,
+        // Character constants compile to calls without arguments.
+        "space" if args.is_empty() => Value::str(" "),
+        "return" if args.is_empty() => Value::str("\r"),
+        "tab" if args.is_empty() => Value::str("\t"),
+        "quote" if args.is_empty() => Value::str("\""),
+        "empty" if args.is_empty() => Value::str(""),
+        "enter" if args.is_empty() => Value::str("\u{3}"),
+        "backspace" if args.is_empty() => Value::str("\u{8}"),
         // --- conversion ---
         "integer" => match &a0 {
             Value::Str(s) => match parse_number(s) {

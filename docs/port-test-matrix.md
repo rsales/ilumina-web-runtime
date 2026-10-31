@@ -57,11 +57,20 @@ Slices, each with its own check:
      and `dCheck` (the program's own demo/registration code, untouched).
    - `prepareMovie` runs PathMgr, Framework, SoundMgr, Nav, PaletteMgr,
      SpriteMgr, HelpMgr, IMLMgr, the database-update scan, opens
-     `AppTables.vdb` through V4MD, passes the resolution check, and stops at
-     the **first-run registration dialog** (`DoRegistrationDialogEx`, Mui
-     Xtra) — the same dialog a fresh Wine profile shows. The shared
-     `startMovie` then fails only because objects created later in `init`
-     (`goMenuMgr`) do not exist yet.
+     `AppTables.vdb` through V4MD, passes the resolution check, and shows the
+     **first-run registration dialog** "Registre Sua Cópia do iLúmina" (Mui:
+     7 text fields, a default push button) — the dialog a fresh Wine profile
+     shows. A user who only closes it is told "Ponha seu nome, por favor."
+     and gets the dialog again (registration is required): the run stops
+     after three identical dialogs. The shared `startMovie` fails only
+     because objects created later in `init` (`goMenuMgr`) do not exist yet.
+   - `player::mui`: the Mui Xtra (window/item property lists, `Initialize`,
+     `Run` with events to the Lingo callback, `stop`, `ItemUpdate`, `Alert`)
+     and a `Responder` for the user: `CloseAll` by default; `Owner` types the
+     owner's own `ILUMINA_REG_NAME`/`EMAIL`/`CEP` (the Wine runtime's
+     variables) into the text fields in order and presses the button, never
+     generated values. The disc test masks those values in its output.
+   - ⏳ Run with the owner's data on the Mac to set the next ratchet step.
    - The disc test is a ratchet: it asserts where each event stops and fails
      if the run regresses or gets further without the table being updated.
    - The host reports a 1024×768 desktop like the Wine reference

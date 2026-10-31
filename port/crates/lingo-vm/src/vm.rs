@@ -217,7 +217,9 @@ impl Vm {
     ) -> Result<usize, LingoError> {
         let targets = self.program.movie_handlers(name);
         for &(s, h) in &targets {
-            self.steps = 0;
+            if self.stack_trace.is_empty() {
+                self.steps = 0;
+            }
             self.run(host, s, h, None, args.clone())?;
         }
         Ok(targets.len())
@@ -230,7 +232,11 @@ impl Vm {
         name: &str,
         args: Vec<Value>,
     ) -> Result<Value, LingoError> {
-        self.steps = 0;
+        // Only a top-level call gets a fresh budget: a host callback that
+        // re-enters the VM (a dialog event) shares the caller's.
+        if self.stack_trace.is_empty() {
+            self.steps = 0;
+        }
         self.call_global(host, name, args)
     }
 

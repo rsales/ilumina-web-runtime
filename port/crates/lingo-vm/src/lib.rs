@@ -711,6 +711,47 @@ mod tests {
         );
     }
 
+    // Regression: a loop that re-enters the VM through the host (a dialog
+    // shown again and again) reset the instruction budget on every
+    // re-entry and never stopped.
+    #[test]
+    fn reentrant_calls_share_the_budget() {
+        struct Reenter;
+        impl Host for Reenter {
+            fn call(&mut self, vm: &mut Vm, name: &str, _: &[Value]) -> HostResult<Option<Value>> {
+                if name == "show" {
+                    return vm.call(self, "cb", vec![]).map(Some).map_err(|e| e.message);
+                }
+                Ok(None)
+            }
+        }
+        // f: repeat forever: show()   (show re-enters and runs cb)
+        let p = program(
+            ScriptKind::Movie,
+            &["f", "show", "cb"],
+            &[],
+            vec![],
+            vec![
+                H {
+                    name: "f",
+                    args: &[],
+                    locals: 0,
+                    code: vec![(ARGLISTNORET, 0), (EXTCALL, 1), (ENDREPEAT, 4)],
+                },
+                H {
+                    name: "cb",
+                    args: &[],
+                    locals: 0,
+                    code: vec![(PUSHINT8, 1), (RET, 0)],
+                },
+            ],
+        );
+        let mut vm = Vm::new(p);
+        vm.step_limit = 10_000;
+        let e = vm.call(&mut Reenter, "f", vec![]).unwrap_err();
+        assert!(e.message.contains("budget"), "{e}");
+    }
+
     #[test]
     fn wide_ints_floats_and_jmp() {
         let code = vec![

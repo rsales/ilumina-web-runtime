@@ -184,6 +184,8 @@ impl Value {
     /// `string(x)`: how Lingo turns a value into text.
     pub fn to_text(&self) -> String {
         match self {
+            // `"a" & VOID` is "a" (only `put` shows <Void>).
+            Value::Void => String::new(),
             Value::Str(s) => s.clone(),
             Value::Symbol(s) => s.clone(),
             other => other.to_string(),
@@ -538,6 +540,13 @@ mod tests {
             (2026, 10, 31)
         );
         assert_eq!(days_from_civil(1970, 1, 1), 0);
+    }
+
+    // Regression: a dialog title built with a VOID part read " <Void>Registre…".
+    #[test]
+    fn void_concatenates_as_empty_text() {
+        assert_eq!(Value::Void.to_text(), "");
+        assert_eq!(Value::Void.to_string(), "<Void>");
     }
 
     #[test]

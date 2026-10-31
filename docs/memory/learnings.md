@@ -136,3 +136,13 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   opened, then the resolution check passed): keep each disc test asserting
   the exact stop point.
 
+- **Registration is required on first run** (2026-10-31): closing the Mui
+  dialog makes the program alert "Ponha seu nome, por favor." and show it
+  again. A responder that never answers loops; the host stops after three
+  identical dialogs, and the VM's instruction budget is no longer reset by
+  calls that re-enter it from the host (dialog callbacks).
+- **`"a" & VOID` is "a"**: VOID converts to empty text; only `put` shows
+  `<Void>`. **Character constants** (`SPACE`, `RETURN`, `QUOTE`…) compile to
+  calls with no arguments.
+- **Mui buttons can be `defaultPushButton`**, not only `pushButton`.
+

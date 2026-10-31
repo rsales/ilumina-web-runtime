@@ -26,6 +26,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- `player::mui`: the Mui dialog Xtra with a `Responder` (close, or the
+  owner's own registration data from `ILUMINA_REG_*`); Home's startup now
+  shows the first-run registration dialog as on Wine.
 - Valentina: `.vdb` schema reader (table/field names and types), typed
   column access for all 15 databases, and the SQL SELECT subset the scripts
   use; `player::v4md` exposes them as the V4MD Xtra (VDatabase, VCursor).

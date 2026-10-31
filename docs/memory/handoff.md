@@ -37,11 +37,11 @@ See `docs/port-test-matrix.md`.
 
 **M2 slice 2 in progress (2026-10-31):** `crates/player` (virtual file
 system, properties, BuddyAPI, FileIO, prefs, V4MD over `crates/valentina`,
-which now reads `.vdb` schemas and runs the SQL subset). Home's `prepareMovie`
-reaches the first-run **registration dialog** (Mui Xtra), as on a fresh Wine
-profile. Next: the Mui dialog Xtra with a responder (the page in the browser;
-in tests, a scripted user who cancels or types the owner's own data — never
-generated data, ADR 0005).
+Mui dialogs with a `Responder`). Home's `prepareMovie` shows the first-run
+registration dialog and, without an answer, keeps asking (as the original
+does). Next: the owner runs the disc test with their own `ILUMINA_REG_*`
+values on the Mac (masked output) to see how far the startup goes and set
+the next ratchet step.
 
 **M2 slice 1 done (2026-10-31):** `crates/lingo-vm` runs the original
 bytecode; Home's `prepareMovie`/`startMovie` stop at the first player

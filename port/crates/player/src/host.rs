@@ -18,6 +18,8 @@ pub struct MemberInfo {
     pub kind: String,
     /// Index of its script in the VM program, for script members.
     pub script: Option<usize>,
+    /// Bitmap geometry: (width, height, regX, regY, depth).
+    pub bitmap: Option<(i64, i64, i64, i64, i64)>,
 }
 
 /// State of one FileIO instance.
@@ -56,6 +58,11 @@ pub struct PlayerHost {
     files: HashMap<i64, FileIo>,
     next_id: i64,
     pub v4md: crate::v4md::V4md,
+    /// Who answers Mui dialogs (the page, or a scripted user in tests).
+    pub responder: Box<dyn crate::mui::Responder>,
+    /// Dialogs shown: "title: item types".
+    pub dialogs_shown: Vec<String>,
+    dialogs: HashMap<i64, crate::mui::Dialog>,
 }
 
 fn arg(args: &[Value], i: usize) -> Value {
@@ -146,6 +153,9 @@ impl PlayerHost {
             files: HashMap::new(),
             next_id: 1,
             v4md: Default::default(),
+            responder: Box::new(crate::mui::CloseAll),
+            dialogs_shown: Vec::new(),
+            dialogs: HashMap::new(),
         }
     }
 
@@ -185,9 +195,22 @@ impl PlayerHost {
                 },
                 _ => "empty",
             };
+            let bitmap = (m.kind == Bitmap)
+                .then(|| rifx::bitmap::BitmapInfo::parse(&m.specific).ok())
+                .flatten()
+                .map(|b| {
+                    (
+                        b.width as i64,
+                        b.height as i64,
+                        b.reg_x as i64,
+                        b.reg_y as i64,
+                        b.depth as i64,
+                    )
+                });
             self.members.push(MemberInfo {
                 lib,
                 number: m.number,
+                bitmap,
                 script: scripts.get(&m.number).copied(),
                 name: m.name,
                 kind: kind.into(),
@@ -208,6 +231,9 @@ impl PlayerHost {
         }
         if kind.eq_ignore_ascii_case("vcursor") {
             self.v4md.new_cursor(id, args);
+        }
+        if kind.eq_ignore_ascii_case("mui") {
+            self.dialogs.insert(id, crate::mui::Dialog::default());
         }
         Value::Host(HostRef::Object {
             kind: kind.to_string(),
@@ -577,6 +603,11 @@ impl lingo_vm::Host for PlayerHost {
                     return Ok(Some(v));
                 }
             }
+            if kind.eq_ignore_ascii_case("mui") {
+                if let Some(v) = self.mui_method(_vm, *id, name, args)? {
+                    return Ok(Some(v));
+                }
+            }
         }
         if let HostRef::Xtra(x) = target {
             if name.eq_ignore_ascii_case("new") {
@@ -613,6 +644,36 @@ impl lingo_vm::Host for PlayerHost {
                     ("name", Some(m)) => Value::Str(m.name),
                     ("type", Some(m)) => Value::Symbol(m.kind),
                     ("type", None) => Value::sym("empty"),
+                    (
+                        "width",
+                        Some(MemberInfo {
+                            bitmap: Some(b), ..
+                        }),
+                    ) => Value::Int(b.0),
+                    (
+                        "height",
+                        Some(MemberInfo {
+                            bitmap: Some(b), ..
+                        }),
+                    ) => Value::Int(b.1),
+                    (
+                        "rect",
+                        Some(MemberInfo {
+                            bitmap: Some(b), ..
+                        }),
+                    ) => Value::Rect(0.0, 0.0, b.0 as f64, b.1 as f64),
+                    (
+                        "regpoint",
+                        Some(MemberInfo {
+                            bitmap: Some(b), ..
+                        }),
+                    ) => Value::Point(b.2 as f64, b.3 as f64),
+                    (
+                        "depth",
+                        Some(MemberInfo {
+                            bitmap: Some(b), ..
+                        }),
+                    ) => Value::Int(b.4),
                     _ => return Ok(self.missing_prop(target, name)),
                 }
             }
@@ -712,6 +773,129 @@ impl lingo_vm::Host for PlayerHost {
 }
 
 impl PlayerHost {
+    fn mui_method(
+        &mut self,
+        vm: &mut Vm,
+        id: i64,
+        name: &str,
+        args: &[Value],
+    ) -> HostResult<Option<Value>> {
+        use crate::mui::{copy, item_defaults, prop, set_prop, window_defaults, DialogAction};
+        let a0 = arg(args, 0);
+        Ok(Some(match name.to_ascii_lowercase().as_str() {
+            "getwindowproplist" => window_defaults(),
+            "getitemproplist" => item_defaults(),
+            "initialize" => {
+                let d = self.dialogs.entry(id).or_default();
+                d.window = copy(&prop(&a0, "windowPropList"));
+                d.items = match prop(&a0, "windowItemList") {
+                    Value::List(l) => l.borrow().iter().map(copy).collect(),
+                    _ => Vec::new(),
+                };
+                d.stopped = false;
+                Value::Void
+            }
+            "itemupdate" => {
+                let pos = a0.to_int().max(1) as usize;
+                if let Some(it) = self
+                    .dialogs
+                    .get_mut(&id)
+                    .and_then(|d| d.items.get_mut(pos - 1))
+                {
+                    *it = copy(&arg(args, 1));
+                }
+                Value::Void
+            }
+            "windowoperation" => Value::Void,
+            "stop" => {
+                if let Some(d) = self.dialogs.get_mut(&id) {
+                    d.stopped = true;
+                }
+                Value::Void
+            }
+            "alert" => {
+                let (t, m, b) = (
+                    prop(&a0, "title").to_text(),
+                    prop(&a0, "message").to_text(),
+                    prop(&a0, "buttons").to_text(),
+                );
+                self.dialogs_shown.push(format!("alert: {t}"));
+                Value::Int(self.responder.alert(&t, &m, &b) as i64)
+            }
+            "run" => {
+                let Some(d) = self.dialogs.get(&id) else {
+                    return Ok(Some(Value::Void));
+                };
+                let callback = prop(&d.window, "callback").to_text();
+                let (title, view) = d.view();
+                let kinds: Vec<&str> = view.iter().map(|i| i.kind.as_str()).collect();
+                let shown = format!("{title}: {}", kinds.join(" "));
+                // The same dialog again and again: the program keeps asking
+                // for an answer this responder will not give.
+                let repeats = self
+                    .dialogs_shown
+                    .iter()
+                    .rev()
+                    .take_while(|d| **d == shown)
+                    .count();
+                self.dialogs_shown.push(shown);
+                if repeats >= 2 {
+                    return Err(format!(
+                        "dialog {title:?} shown {} times in a row: the responder's answer is not accepted",
+                        repeats + 1
+                    ));
+                }
+                // Send one event to the program's callback (re-entering the VM).
+                let send = |host: &mut PlayerHost,
+                            vm: &mut Vm,
+                            event: &str,
+                            pos: usize|
+                 -> HostResult<()> {
+                    if callback.is_empty() || callback.eq_ignore_ascii_case("nothing") {
+                        return Ok(());
+                    }
+                    let item = host
+                        .dialogs
+                        .get(&id)
+                        .and_then(|d| d.items.get(pos.wrapping_sub(1)).cloned())
+                        .unwrap_or_default();
+                    let args = vec![Value::sym(event), Value::Int(pos as i64), item];
+                    vm.call(host, &callback, args)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                };
+                send(self, vm, "windowOpening", 0)?;
+                let actions = self.responder.dialog(&title, &view);
+                let mut closed = false;
+                for a in actions {
+                    if self.dialogs.get(&id).is_none_or(|d| d.stopped) {
+                        break;
+                    }
+                    match a {
+                        DialogAction::SetValue(p, v) => {
+                            if let Some(it) = self.dialogs.get(&id).and_then(|d| d.items.get(p - 1))
+                            {
+                                set_prop(it, "value", Value::Str(v));
+                            }
+                            send(self, vm, "itemChanged", p)?;
+                        }
+                        DialogAction::Click(p) => send(self, vm, "itemClicked", p)?,
+                        DialogAction::Close => {
+                            send(self, vm, "windowClosed", 0)?;
+                            closed = true;
+                            break;
+                        }
+                    }
+                }
+                if !closed && self.dialogs.get(&id).is_some_and(|d| !d.stopped) {
+                    send(self, vm, "windowClosed", 0)?;
+                }
+                Value::Void
+            }
+            _ => return Ok(None),
+        }))
+    }
+
     fn missing_prop(&mut self, target: &HostRef, name: &str) -> Option<Value> {
         self.note(format!("get {}.{name}", Value::Host(target.clone()).ilk()));
         None
