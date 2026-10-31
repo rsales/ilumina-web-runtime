@@ -117,6 +117,7 @@ the QTVR 2.x atom containers, and includes an `smc ` decoder.
   - **24 of the 25 `.mov` files in `QTVRs/` are tours, and all of them parse.**
     `Default.mov` is a plain movie.
 - `xtask qtvr <tour.mov>` writes the graph as JSON to `work/qtvr/`.
+- The disc tests and the JSON dump also pass on the Mac mini M4 (2026-10-30).
 - **Faces:** ffmpeg decodes the MPEG-4 faces in about 2 s per tour. It logs MB
   errors, but the frames look right, so this belongs in `media-prep` (M4).
 - **Next:**
@@ -124,7 +125,29 @@ the QTVR 2.x atom containers, and includes an `smc ` decoder.
   - what the sprite tracks do (wired actions?);
   - a WebGL cube viewer that switches nodes from the hotspot maps (M4).
 
+### dirplayer-rs ⚠️ parses the casts; the player was not tried (2026-10-30)
+
+- Tested commit `68376fb` (GPL-3.0-only, Rust edition 2024, built for
+  wasm-pack). The harness was **local only and not committed**: a throwaway
+  crate that calls `read_director_file_bytes` natively on each of the 29 files.
+- **All 20 `.cxt` casts load.** Their member counts are identical to `rifx`
+  (for example BIAssets 322, GCode 166, MCAssets 349), so two independent
+  parsers agree.
+- **8 of 9 `.dxr` projector movies crash natively** inside
+  `ScoreChunk::analyze_behavior_attachment_entries`. It evaluates the Lingo
+  of behaviour parameters through the global player (`PLAYER_OPT`), which
+  only exists after the wasm player has initialised. This is an API limit of
+  the native harness, not a format failure.
+- The decisive test, playing `Home.dxr` in the dirplayer web app or the
+  standalone app, needs a browser build. The sandbox can't do it; it could be
+  done by hand on the Mac.
+- **What it would bring:** a Lingo VM, score playback and a renderer that
+  already run several D7–D10 Shockwave titles.
+- **What it doesn't have:** none of iLumina's Xtras (V4MD, TreeView,
+  BuddyAPI, Mui, OSControl, QT3Asset), no QTVR, and no projector/MIAW focus.
+  It targets `.dcr` web games.
+
 ### Not done in M0 yet ⏳
 
-- dirplayer-rs test against `Home.dxr`, and the GPL decision.
+- **License decision:** MIT with our own engine, or a GPL-3 fork of dirplayer-rs. The owner decides.
 - Hash gate against the manifest inside `xtask`.
