@@ -841,7 +841,7 @@ fn lingo_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>
                         let arg = if ins.op.arg_is_name() {
                             ctx.name(ins.arg).to_string()
                         } else if ins.op.0 == 0x44 {
-                            match s.literals.get((ins.arg as usize) / 1usize) {
+                            match s.literals.get(ins.arg as usize) {
                                 Some(Literal::String(t)) => format!("{t:?}"),
                                 Some(l) => format!("{l:?}"),
                                 None => ins.arg.to_string(),
