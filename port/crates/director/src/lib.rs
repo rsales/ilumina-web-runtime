@@ -249,31 +249,12 @@ impl Stage {
                         } else {
                             255
                         };
-                        // Fields draw inside their border and margin and
-                        // clip unless their box adjusts to fit. Text members
-                        // grow to fit their text (the score height is only
-                        // the initial box), so they clip at the stage.
-                        let (inset, clip) = if kind == Some(MemberType::Field) {
+                        let field = (kind == Some(MemberType::Field)).then(|| {
                             let m = self.cast(s.cast_lib).and_then(|c| c.member(s.member));
-                            let fb = FieldBox::parse(m.map(|m| &m.specific[..]).unwrap_or(&[]));
-                            (fb.border as i64 + fb.margin as i64, fb.box_type != 0)
-                        } else {
-                            (0, false)
-                        };
-                        let height = if clip {
-                            s.height as i64 - 2 * inset
-                        } else {
-                            h as i64
-                        };
-                        canvas.text(
-                            &t,
-                            s.left as i64 + inset,
-                            s.top as i64 + inset,
-                            s.width as i64 - 2 * inset,
-                            height,
-                            a,
-                            fonts,
-                        );
+                            FieldBox::parse(m.map(|m| &m.specific[..]).unwrap_or(&[]))
+                        });
+                        let (l, t2, w2, h2) = text_box(field, &s, h as i64);
+                        canvas.text(&t, l, t2, w2, h2, a, fonts);
                         report.drawn.push(s.number);
                     }
                     None => report
@@ -328,6 +309,29 @@ impl FieldBox {
             },
         }
     }
+}
+
+/// Box (left, top, width, height) that a text sprite draws and clips into.
+/// Fields draw inside their border and margin and clip unless their box
+/// adjusts to fit. Text members grow to fit their text (the score height is
+/// only the initial box), so they clip at the stage bottom.
+pub fn text_box(field: Option<FieldBox>, s: &Sprite, stage_height: i64) -> (i64, i64, i64, i64) {
+    let (inset, clip) = match field {
+        Some(fb) => (fb.border as i64 + fb.margin as i64, fb.box_type != 0),
+        None => (0, false),
+    };
+    let top = s.top as i64 + inset;
+    let height = if clip {
+        s.height as i64 - 2 * inset
+    } else {
+        stage_height - top
+    };
+    (
+        s.left as i64 + inset,
+        top,
+        s.width as i64 - 2 * inset,
+        height,
+    )
 }
 
 /// Shape member (big-endian): `u16 type (1 rect, 2 round rect, 3 oval,
@@ -561,6 +565,26 @@ mod tests {
         assert_eq!(at(1, 1), vec![255, 0, 0]); // top-left = loc - reg
         assert_eq!(at(2, 1), vec![0, 0, 0]); // white skipped by ink 36
         assert_eq!(at(2, 2), vec![255, 0, 0]);
+    }
+
+    // Regression: a text member whose score height is one line (12 px) cut
+    // its description after the first line.
+    #[test]
+    fn text_members_grow_and_fixed_fields_clip() {
+        let s = sprite(10, 100, 200, 12, 36);
+        assert_eq!(text_box(None, &s, 768), (10, 100, 200, 668));
+        let fixed = FieldBox {
+            border: 1,
+            margin: 2,
+            box_type: 2,
+            align: Align::Left,
+        };
+        assert_eq!(text_box(Some(fixed), &s, 768), (13, 103, 194, 6));
+        let adjust = FieldBox {
+            box_type: 0,
+            ..fixed
+        };
+        assert_eq!(text_box(Some(adjust), &s, 768).3, 768 - 103);
     }
 
     #[test]

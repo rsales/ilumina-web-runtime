@@ -27,7 +27,7 @@ Milestone **M1** (static Home) in progress: bitmaps, shapes, score and text rend
 cd port
 cargo test                                    # unit tests (no discs needed)
 cargo build -p rifx --target wasm32-unknown-unknown   # wasm build check
-ILUMINA_DISCS=../discs cargo test             # + structural test over the real movies
+ILUMINA_REQUIRE_DISCS=1 cargo test            # fail instead of skipping when no discs are found
 cargo run -p xtask -- verify ../discs
 cargo run -p xtask -- inventory ../discs ../work/inventory
 cargo run -p xtask -- valentina ../discs/cd1/Program/Files/Databases/KJV.DAT ../work/valentina
@@ -44,7 +44,12 @@ Text uses the fonts installed on the machine. On macOS the original faces
 `/System/Library/Fonts/Supplemental`; elsewhere Liberation/DejaVu stand in.
 `ILUMINA_FONTS=/path/to/fonts` adds folders to search first.
 
-`ILUMINA_DISCS` points at the folder that holds `cd1`…`cd4` (the same layout as the Wine runtime). A relative path is resolved from `port/`.
+Disc tests and `xtask` need the folder that holds `cd1`…`cd4`. Tests find it
+at `<repo>/discs` or next to the repo (`<repo>/../discs`), or wherever
+`ILUMINA_DISCS` points (relative to `port/`). A wrong `ILUMINA_DISCS` fails
+the tests instead of skipping them. `xtask` checks its `<discs-dir>` argument
+and prints where the discs are if the path is wrong. From `port/` with the
+discs next to the repo, that is `../../discs`.
 
 ## Rules
 

@@ -83,3 +83,15 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   XMED member can be one line (12 px) while the text runs to several, so only
   fields with a fixed/scrolling box are clipped.
 
+- **A green `cargo test` on the Mac did not cover the discs** (2026-10-31).
+  The disc tests skipped silently because `ILUMINA_DISCS` was unset, and the
+  owner's discs live next to the repo (`iluminagold/discs`), so `../discs`
+  from `port/` is wrong (it is `../../discs`). `discs::locate`/`for_tests`
+  now find both layouts, fail on a wrong `ILUMINA_DISCS`, and xtask checks its
+  argument. Each case has a regression test.
+- **Bundles must start at a commit the owner has** (2026-10-31). A bundle
+  built from the last commit made here (`dd1038c..`) failed with "Repository
+  lacks these prerequisite commits" because that commit had never been
+  delivered. Before bundling, read the owner's branch head with `git log -1`
+  on the linked computer and use it as the base.
+

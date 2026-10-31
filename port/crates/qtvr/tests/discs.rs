@@ -1,18 +1,10 @@
-//! Integration test over the user's own discs (skipped unless
-//! `ILUMINA_DISCS` is set). Asserts structure only.
+//! Integration test over the user's own discs (found by `discs::for_tests`;
+//! skipped when there are none). Asserts structure only.
 
 use std::collections::{BTreeSet, HashSet};
 
 fn discs() -> Option<std::path::PathBuf> {
-    let d = std::env::var("ILUMINA_DISCS").ok()?;
-    let p = std::path::Path::new(&d);
-    Some(if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(p)
-    })
+    discs::for_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
 }
 
 fn tour_files(discs: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -42,7 +34,6 @@ fn tour_files(discs: &std::path::Path) -> Vec<std::path::PathBuf> {
 #[test]
 fn nazare_tour_graph_and_hotspot_maps() {
     let Some(d) = discs() else {
-        eprintln!("ILUMINA_DISCS not set; skipping");
         return;
     };
     let data = std::fs::read(d.join("cd2/Files/Media/QTVRs/NZV.mov")).unwrap();

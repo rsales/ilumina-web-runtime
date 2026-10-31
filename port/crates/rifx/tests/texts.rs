@@ -1,5 +1,5 @@
 //! Parse every styled text (`XMED`) and field (`STXT`) on the user's discs
-//! (skipped unless `ILUMINA_DISCS` is set). Asserts structure only; prints
+//! (found by `discs::for_tests`; skipped when there are none). Asserts structure only; prints
 //! counts, never the text itself.
 
 use rifx::cast::{members, MemberType};
@@ -8,16 +8,10 @@ use rifx::{FourCC, Movie};
 
 #[test]
 fn every_text_parses() {
-    let Ok(d) = std::env::var("ILUMINA_DISCS") else {
+    let Some(root) =
+        discs::for_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    else {
         return;
-    };
-    let p = std::path::Path::new(&d);
-    let root = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(p)
     };
     let dir = root.join("cd1/Program/Files");
     let (xmed, stxt) = (FourCC::new(b"XMED"), FourCC::new(b"STXT"));

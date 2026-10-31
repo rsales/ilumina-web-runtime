@@ -1,25 +1,18 @@
-//! Integration test over the user's own discs (skipped unless
-//! `ILUMINA_DISCS` is set). Asserts structure only, never text content.
+//! Integration test over the user's own discs (found by `discs::for_tests`;
+//! skipped when there are none). Asserts structure only, never text content.
 
 use valentina::DataFile;
 
 fn databases() -> Option<std::path::PathBuf> {
-    let discs = std::env::var("ILUMINA_DISCS").ok()?;
-    let p = std::path::Path::new(&discs);
-    let p = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(p)
-    };
-    Some(p.join("cd1/Program/Files/Databases"))
+    Some(
+        discs::for_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))?
+            .join("cd1/Program/Files/Databases"),
+    )
 }
 
 #[test]
 fn kjv_table_reads_completely() {
     let Some(dir) = databases() else {
-        eprintln!("ILUMINA_DISCS not set; skipping");
         return;
     };
     let data = std::fs::read(dir.join("KJV.DAT")).expect("KJV.DAT");

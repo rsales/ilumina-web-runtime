@@ -1,5 +1,5 @@
-//! Decode every bitmap member on the user's discs (skipped unless
-//! `ILUMINA_DISCS` is set). Asserts structure only.
+//! Decode every bitmap member on the user's discs (found by `discs::for_tests`;
+//! skipped when there are none). Asserts structure only.
 
 use rifx::bitmap::{bitd_for, system_win_palette, to_rgba, unpack, BitmapInfo};
 use rifx::cast::{members, MemberType};
@@ -7,16 +7,10 @@ use rifx::Movie;
 
 #[test]
 fn every_bitmap_decodes() {
-    let Ok(d) = std::env::var("ILUMINA_DISCS") else {
+    let Some(root) =
+        discs::for_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    else {
         return;
-    };
-    let p = std::path::Path::new(&d);
-    let root = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(p)
     };
     let exe = std::fs::read(root.join("cd1/Program/iLumina.exe")).unwrap();
     let pal = system_win_palette(&exe).expect("System - Win palette in the projector");

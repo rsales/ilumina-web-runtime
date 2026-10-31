@@ -505,6 +505,79 @@ pub fn parse_stxt(
 mod tests {
     use super::*;
 
+    /// Append an XMED section (header + body).
+    fn sec(d: &mut Vec<u8>, key: u16, count: usize, body: &[u8]) {
+        d.extend_from_slice(format!("{key:04X}{:08X}{count:08X}", body.len()).as_bytes());
+        d.extend_from_slice(body);
+    }
+
+    /// A minimal XMED document: header, version, optional text-block flags,
+    /// and one text block.
+    fn doc(flags: Option<&str>, text: &[u8]) -> Vec<u8> {
+        let mut d = Vec::new();
+        sec(&mut d, 0xffff, 1, b"\x0177AA\x03");
+        sec(&mut d, 0, 0, b"\x0240001\x03");
+        if let Some(f) = flags {
+            sec(&mut d, 1, 1, format!("\x020\x020\x01{f}\x03").as_bytes());
+        }
+        let mut t = format!("\x00{:X},", text.len()).into_bytes();
+        t.extend_from_slice(text);
+        t.push(3);
+        sec(&mut d, 2, 0, &t);
+        d
+    }
+
+    // Regression: Mac-authored documents showed "Isa'as" for "Isaías".
+    // The text-block flags pick the encoding; bytes alone cannot (0x92 is
+    // also the Windows apostrophe).
+    #[test]
+    fn xmed_encoding_follows_text_block_flags() {
+        assert_eq!(
+            parse_xmed(&doc(Some("4081"), b"V\x92deo")).unwrap().text,
+            "Vídeo"
+        );
+        assert_eq!(
+            parse_xmed(&doc(Some("4084"), b"it\x92s")).unwrap().text,
+            "it’s"
+        );
+        assert_eq!(parse_xmed(&doc(None, b"it\x92s")).unwrap().text, "it’s");
+    }
+
+    // Regression: Flash Asset members also carry an XMED chunk (a SWF).
+    #[test]
+    fn xmed_rejects_flash_data() {
+        let mut swf = vec![0, 3, 0xb7, 0xc0, 0, 0, 0, 1, 0, 3, 0xb7, 0xb4];
+        swf.extend_from_slice(b"FWS\x06");
+        assert!(parse_xmed(&swf).is_err());
+    }
+
+    // Regression: the style count is in the section header and "R n" repeats
+    // count in total. Reading the first value as the count shifted every
+    // record, so all runs came out as the default Arial 12.
+    #[test]
+    fn xmed_style_count_comes_from_the_header() {
+        let mut v = vec![0i64; STYLE_LEN];
+        v[ST_FONT] = 0;
+        v[ST_POINT] = 14;
+        let mut styles = b"\x025".to_vec(); // leading value, not a count
+        for x in &v {
+            styles.extend_from_slice(format!("\x02{x:X}").as_bytes());
+        }
+        styles.push(3);
+        let mut fonts = vec![0u8];
+        fonts.extend_from_slice(b"7,\x06Geneva\x00");
+        fonts.extend_from_slice(b"\x00\x31,\x00\x03");
+        let mut d = doc(None, b"ab");
+        sec(&mut d, 4, 2, b"\x020\x010\x022\x010\x03");
+        sec(&mut d, 6, 1, &styles);
+        sec(&mut d, 8, 1, &fonts);
+        let t = parse_xmed(&d).unwrap();
+        assert_eq!(
+            (t.runs[0].style.font.as_str(), t.runs[0].style.size),
+            ("Geneva", 14)
+        );
+    }
+
     #[test]
     fn packer_numbers_repeats_and_bytes() {
         let mut p = Packer::new(b"\x02A\x02-3\x81\xc1\x03\x00C,hello world!\x03");
@@ -519,10 +592,6 @@ mod tests {
 
     #[test]
     fn xmed_text_and_runs() {
-        fn sec(d: &mut Vec<u8>, key: u16, count: usize, body: &[u8]) {
-            d.extend_from_slice(format!("{key:04X}{:08X}{count:08X}", body.len()).as_bytes());
-            d.extend_from_slice(body);
-        }
         fn style(font: i64, size: i64, bold: bool, red: bool) -> Vec<u8> {
             let mut v = vec![0i64; STYLE_LEN];
             v[ST_FONT] = font;

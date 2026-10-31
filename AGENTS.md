@@ -25,9 +25,14 @@ Each change should serve one of the use cases in
    - Image contents → `Dockerfile` (Ubuntu archive packages only, see ADR 0002)
    - Disc tooling → `tools/`
    - Knowledge → `docs/`
-4. **Run the validation** below. Paste the evidence (log lines, `OK:` output)
+4. **Every bug gets a regression test.** When something breaks (a parser
+   misreads a format, a path or setup mistake, a build that fails on a
+   clean clone), add a test that fails the way it failed, with a
+   `// Regression: …` comment saying what happened, then fix it. Use
+   synthetic data; never commit disc content in a test.
+5. **Run the validation** below. Paste the evidence (log lines, `OK:` output)
    into your summary.
-5. **Leave the repo better documented than you found it:**
+6. **Leave the repo better documented than you found it:**
    - new verified fact → `docs/compatibility.md` (✅/⚠️/⏳ with how you verified it)
    - gotcha you hit → `docs/memory/learnings.md`
    - architectural choice → new ADR in `docs/decisions/`
@@ -83,7 +88,10 @@ docker compose up -d && docker compose logs ilumina | grep "xpra is ready"
 ```sh
 # 5. Rust port (port/)
 cd port && cargo test && cargo clippy
-ILUMINA_DISCS=../discs cargo test        # → 29 movies, 2018 members, 446 scripts; KJV 31102 verses
+# Disc tests find the discs at <repo>/discs or <repo>/../discs, or ILUMINA_DISCS
+# (relative to port/). A wrong ILUMINA_DISCS fails; no discs at all skips, unless
+# ILUMINA_REQUIRE_DISCS=1 is set.
+ILUMINA_REQUIRE_DISCS=1 cargo test       # → 29 movies, 2018 members, 446 scripts; KJV 31102 verses
 ```
 
 GUI automation broke? Use [docs/runbooks/debugging-gui-automation.md](docs/runbooks/debugging-gui-automation.md).

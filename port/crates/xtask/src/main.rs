@@ -26,7 +26,7 @@ fn main() {
                 .get(2)
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("work/inventory"));
-            if let Err(e) = inventory(Path::new(&args[1]), &out) {
+            if let Err(e) = inventory(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -54,7 +54,7 @@ fn main() {
         Some("verify") if args.len() >= 2 => {
             let entries =
                 discs::parse_manifest(discs::ILUMINA_GOLD_250_PTBR).expect("embedded manifest");
-            match discs::verify(Path::new(&args[1]), &entries) {
+            match discs::verify(&discs_root(&args[1]), &entries) {
                 Ok(r) if r.is_ok() => println!("OK: {} files match ilumina-gold-2.50-ptbr", r.ok),
                 Ok(r) => {
                     for p in &r.missing {
@@ -85,7 +85,7 @@ fn main() {
                     args[2].trim_end_matches(".dxr")
                 ))
             });
-            if let Err(e) = render(Path::new(&args[1]), &args[2], frame, &out) {
+            if let Err(e) = render(&discs_root(&args[1]), &args[2], frame, &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -102,7 +102,7 @@ fn main() {
                 .get(2)
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("work/texts"));
-            if let Err(e) = texts_dump(Path::new(&args[1]), &out) {
+            if let Err(e) = texts_dump(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -112,7 +112,7 @@ fn main() {
                 .get(2)
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("work/bitmaps"));
-            if let Err(e) = bitmaps_dump(Path::new(&args[1]), &out) {
+            if let Err(e) = bitmaps_dump(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -135,6 +135,21 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// The `<discs-dir>` argument, checked before any work: a wrong folder gets
+/// an explanation and, when the discs are found elsewhere, the path to use.
+fn discs_root(arg: &str) -> PathBuf {
+    let p = PathBuf::from(arg);
+    if let Err(e) = discs::check_root(&p) {
+        eprintln!("error: {e}");
+        let port = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if let Ok(found) = discs::locate(&port, None) {
+            eprintln!("hint: the discs are at {}", found.display());
+        }
+        std::process::exit(2);
+    }
+    p
 }
 
 #[derive(Default)]

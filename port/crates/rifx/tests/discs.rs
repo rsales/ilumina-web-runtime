@@ -1,5 +1,5 @@
-//! Integration test over the user's own discs. Skipped unless
-//! `ILUMINA_DISCS` points at the folder that holds cd1..cd4.
+//! Integration test over the user's own discs. Found by
+//! `discs::for_tests` (`ILUMINA_DISCS`, or `discs/` beside or above the repo).
 //! Asserts structure only (counts, no content), so it is safe to run in CI
 //! on a machine that has the discs.
 
@@ -10,26 +10,15 @@ use rifx::Movie;
 
 #[test]
 fn every_movie_parses_and_all_bytecode_decodes() {
-    let Ok(discs) = std::env::var("ILUMINA_DISCS") else {
-        eprintln!("ILUMINA_DISCS not set; skipping");
+    let Some(discs) =
+        discs::for_tests(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    else {
         return;
-    };
-    // `cargo test` runs integration tests from the crate directory, so a
-    // relative path is resolved against the workspace root (`port/`).
-    let discs = std::path::Path::new(&discs);
-    let discs = if discs.is_absolute() {
-        discs.to_path_buf()
-    } else {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(discs)
     };
     let dir = discs.join("cd1/Program/Files");
     let mut files = 0;
     let (mut n_members, mut n_scripts, mut n_handlers) = (0, 0, 0);
-    for entry in std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("{}: {e} (ILUMINA_DISCS must hold cd1..cd4)", dir.display()))
-    {
+    for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e} ", dir.display())) {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let ext = path
