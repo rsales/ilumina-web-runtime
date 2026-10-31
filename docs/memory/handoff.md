@@ -37,8 +37,10 @@ See `docs/port-test-matrix.md`.
 
 **M1 in progress:** hash gate ✅, bitmaps ✅, score ✅, native compositor ⚠️.
 `xtask render <discs> Home.dxr 1` writes a PNG. MediaCenter frame 1 matches
-Boxedwine's layout by eye. Next: XMED/STXT text, the WASM canvas shell
-(`port/crates/web`), and a Wine screenshot of Home for SSIM. 8-bit palette
+Boxedwine's layout by eye. Owner's Boxedwine screenshots of Home and Multimídia are in `work/reference/`.
+The gaps are mostly Lingo runtime state (icon swaps, linked JPEGs, text),
+so parity needs M2. Next: XMED/STXT text and the WASM canvas, then the
+Lingo VM. 8-bit palette
 indices are still to be confirmed.
 
 ## Next steps (in priority order)

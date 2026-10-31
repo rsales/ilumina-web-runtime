@@ -67,6 +67,22 @@ stay in `work/`, never in git.
   - some positions that Lingo changes at runtime (the "a" before "Bíblia");
   - the browser canvas (WASM);
   - SSIM against a Wine screenshot of Home (none has been captured yet).
+- **Compared with Boxedwine screenshots of Home and Multimídia (owner,
+  2026-10-31; kept in `work/reference/`):** most of the gaps are runtime
+  state that **Lingo** sets after the movie starts. The score's frame 1
+  doesn't contain it:
+  - The navbar icons in the score are the `-roll`/`-down` members. Lingo
+    swaps them to the normal/gray states.
+  - The Home photo, the module panel ("BÍBLIA …") and the menu-bar buttons
+    are linked JPEGs or empty bitmaps that Lingo fills in.
+  - The menus, captions and "MAIS: Estudo Pessoal" are `text` Xtra members
+    and fields, which aren't rendered yet.
+  - In Multimídia, the title's position and scale differ from frame 1. Lingo
+    or another frame/label changes them.
+  - **Consequence:** pixel parity with Wine needs the Lingo VM (M2), not just
+    better static rendering. M1 now aims at "everything the score and casts
+    hold renders correctly" (bitmaps ✅, shapes ✅, text ⏳). Comparison with
+    Wine moves to M2.
 
 ## M0 — spike (started 2026-10-30)
 
