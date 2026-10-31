@@ -125,10 +125,17 @@ Slices, each with its own check:
      starts at 2, so every sprite and score reference into it was one member
      off, in M1 rendering too. Fixed in `rifx` (`members_from`), the VM,
      the host and the compositor.
-   - Component test: every frame-1 behavior's `beginSprite` runs. Next stop
-     (ratchet): `prepareFrame` → "Single Scrollbar" → `charPosToLoc`, i.e.
-     text layout metrics in the player (the compositor's text layout is not
-     reachable from the host yet).
+   - ✅ Owner rerun (2026-10-31): with the owner's data the startup stopped
+     exactly where the component test did (`charPosToLoc`).
+   - Text measuring: `director::text::Measure` (the renderer's own layout)
+     gives `charPosToLoc`, `locToCharPos`, `linePosToLocV` and a text
+     member's `height`/`lineCount`; the player measures with the page's
+     fonts or `ApproxFonts` (Arial-like proportions, ⚠️ line breaks may
+     differ from Director until real fonts are wired in). `updateStage`
+     and `nothing` added.
+   - ✅ Component test: **the whole startup completes** — beginSprite,
+     prepareFrame, startMovie, enterFrame, exitFrame of frame 1 (2026-10-31).
+     ⏳ Owner run expected to do the same.
    - Then: `go`, frame labels, `the frame` loop, puppets, and Home frame 1
      rendered from the run-time sprite state.
 4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the

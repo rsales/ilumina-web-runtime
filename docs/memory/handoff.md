@@ -35,6 +35,13 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 3, latest (2026-10-31):** text measuring (`director::text::Measure`,
+`player::fonts::ApproxFonts`) unblocked "Single Scrollbar"; in the component
+test Home's whole startup (frame 1: beginSprite → exitFrame) completes.
+Next: the frame loop (`go`, frame labels, endSprite, stepFrame for the
+actorList → Poster's offline POST), then render Home from the run-time
+sprite state in the browser. Owner: rerun the disc test.
+
 **M2 slice 3 started (2026-10-31):** owner rerun: `prepareMovie` completes.
 Score behaviors, `player::stage` (startup order, frame events,
 `sendSprite`) and many sprite/member properties are in; the cast

@@ -50,7 +50,14 @@ const STOP_WITHOUT_OWNER: (&str, &str) = (
 /// With the owner's data (2026-10-31 run on the Mac: prepareMovie completes)
 /// the run reaches the frame; it must not fall back to stops already fixed.
 // Regression: registration accepted, then `the actorList` in Poster.POST.
-const FIXED_OWNER_STOPS: &[&str] = &["Registre Sua C", "the actorList", "sendSprite"];
+const FIXED_OWNER_STOPS: &[&str] = &[
+    "Registre Sua C",
+    "the actorList",
+    "sendSprite",
+    "charPosToLoc",
+    "updateStage",
+    "#nothing",
+];
 
 #[test]
 fn home_movie_events() {
@@ -164,8 +171,8 @@ const MANAGER_STOPS: &[(&str, &str)] = &[];
 
 /// Where the rest of the registered path stops (ratchet).
 const REST_STOPS: &[(&str, &str)] = &[
-    // Text layout metrics ("Single Scrollbar" measures its field).
-    ("prepareFrame", "handler #charPosToLoc"),
+    // Empty: the whole startup completes (2026-10-31). The next ratchet is
+    // the frame loop (go, labels, endSprite, stepFrame).
 ];
 
 #[test]

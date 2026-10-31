@@ -132,6 +132,82 @@ fn layout(text: &StyledText, width: f32, fonts: &dyn Fonts) -> Vec<Line> {
     lines
 }
 
+/// Text measurements for Lingo (`charPosToLoc`, `locToCharPos`, a text
+/// member's height), from the same layout the renderer draws.
+pub struct Measure {
+    lines: Vec<Line>,
+    chars: usize,
+}
+
+impl Measure {
+    pub fn new(text: &StyledText, width: f32, fonts: &dyn Fonts) -> Self {
+        Measure {
+            lines: layout(text, width.max(1.0), fonts),
+            chars: text.text.chars().count(),
+        }
+    }
+
+    /// Total height of the laid-out text.
+    pub fn height(&self) -> f32 {
+        self.lines.iter().map(|l| l.height).sum()
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// `charPosToLoc`: left edge of character `n` (1-based, clamped) and the
+    /// bottom of its line (⏳ Director's exact vertical reference).
+    pub fn char_loc(&self, n: usize) -> (f32, f32) {
+        let idx = n.clamp(1, self.chars.max(1)) - 1;
+        let mut top = 0.0;
+        let mut last = (0.0, 0.0);
+        for l in &self.lines {
+            if let Some(p) = l.items.iter().find(|p| p.idx == idx) {
+                return (p.x, top + l.height);
+            }
+            if let Some(p) = l.items.last() {
+                last = (p.x + p.advance, top + l.height);
+            }
+            top += l.height;
+        }
+        last
+    }
+
+    /// `locToCharPos`: the character (1-based) nearest to point (x, y).
+    pub fn char_at(&self, x: f32, y: f32) -> usize {
+        let mut top = 0.0;
+        for (i, l) in self.lines.iter().enumerate() {
+            let last_line = i + 1 == self.lines.len();
+            if y < top + l.height || last_line {
+                return match l.items.iter().find(|p| x < p.x + p.advance / 2.0) {
+                    Some(p) => p.idx + 1,
+                    None => l
+                        .items
+                        .last()
+                        .map(|p| p.idx + 2)
+                        .unwrap_or(1)
+                        .min(self.chars + 1),
+                };
+            }
+            top += l.height;
+        }
+        1
+    }
+
+    /// `linePosToLocV`: distance from the top to line `n`'s baseline.
+    pub fn line_baseline(&self, n: usize) -> f32 {
+        let mut top = 0.0;
+        for (i, l) in self.lines.iter().enumerate() {
+            if i + 1 == n {
+                return top + l.ascent;
+            }
+            top += l.height;
+        }
+        top
+    }
+}
+
 impl Canvas {
     /// Draw styled text into the box (`left`, `top`, `width`, `height`),
     /// clipped to it. `alpha` is the sprite blend (255 = opaque).
@@ -236,6 +312,20 @@ mod tests {
                 coverage: vec![255; 24],
             }
         }
+    }
+
+    #[test]
+    fn measurements_follow_the_layout() {
+        // Width 22 fits four 5 px glyphs: "abc de" wraps after the space.
+        let m = Measure::new(&plain("abc de"), 22.0, &Boxes);
+        assert_eq!(m.line_count(), 2);
+        assert_eq!(m.height(), 16.0);
+        assert_eq!(m.char_loc(2), (5.0, 8.0));
+        assert_eq!(m.char_loc(6), (5.0, 16.0));
+        assert_eq!(m.char_loc(99), (5.0, 16.0)); // clamped to the last char
+        assert_eq!(m.char_at(6.0, 1.0), 2);
+        assert_eq!(m.char_at(0.0, 12.0), 5);
+        assert_eq!(m.line_baseline(2), 14.0);
     }
 
     fn plain(s: &str) -> StyledText {

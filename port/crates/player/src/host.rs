@@ -23,6 +23,8 @@ pub struct MemberInfo {
     /// Text of field and text members (plain, `\r` line breaks); set by
     /// `member.text = …` at run time.
     pub text: Option<String>,
+    /// The authored styled text (fonts and sizes for measuring).
+    pub styled: Option<rifx::text::StyledText>,
     /// Linked media: the path stored by the author (`F:\…\Files\Media\…`),
     /// or the one Lingo set.
     pub file_name: Option<String>,
@@ -166,8 +168,12 @@ pub fn installed_path(stored: &str) -> String {
     }
 }
 
-/// Plain text of a field (STXT) or text (XMED) member, if it has one.
-fn member_text(movie: &rifx::Movie, m: &rifx::cast::Member) -> Option<String> {
+/// Styled text of a field (STXT) or text (XMED) member, if it has one.
+fn member_text(
+    movie: &rifx::Movie,
+    m: &rifx::cast::Member,
+    fmap: &HashMap<u16, String>,
+) -> Option<rifx::text::StyledText> {
     use rifx::FourCC;
     if let Some(s) = movie.children(m.section, FourCC::new(b"XMED")).next() {
         let d = movie.chunk_data(s).ok()?;
@@ -175,12 +181,10 @@ fn member_text(movie: &rifx::Movie, m: &rifx::cast::Member) -> Option<String> {
         if !d.starts_with(b"FFFF") {
             return None;
         }
-        return rifx::text::parse_xmed(d).ok().map(|t| t.text);
+        return rifx::text::parse_xmed(d).ok();
     }
     let s = movie.children(m.section, FourCC::new(b"STXT")).next()?;
-    rifx::text::parse_stxt(movie.chunk_data(s).ok()?, &|_| None)
-        .ok()
-        .map(|t| t.text)
+    rifx::text::parse_stxt(movie.chunk_data(s).ok()?, &|id| fmap.get(&id).cloned()).ok()
 }
 
 /// State of one FileIO instance.
@@ -236,6 +240,10 @@ pub struct PlayerHost {
     pub frame_script: Option<Value>,
     /// Current frame (1-based; 0 = before the first).
     pub frame: usize,
+    /// Font metrics for measuring text (the page's fonts, or an approximation).
+    pub fonts: Box<dyn director::text::Fonts>,
+    /// `updateStage` calls (the page redraws from the sprite state).
+    pub stage_updates: u64,
     /// Mouse position on the stage; off the stage until the page sends one.
     pub mouse: (i64, i64),
 }
@@ -341,6 +349,8 @@ impl PlayerHost {
             frame_script: None,
             frame: 0,
             mouse: (-1, -1),
+            fonts: Box::new(crate::fonts::ApproxFonts),
+            stage_updates: 0,
         }
     }
 
@@ -358,6 +368,10 @@ impl PlayerHost {
             self.cast_libs.push(String::new());
         }
         self.cast_libs[lib as usize - 1] = name.to_string();
+        let fmap = match movie.first(rifx::FourCC::new(b"Fmap")) {
+            Some(c) => rifx::text::parse_fmap(movie.chunk_data(c.id)?)?,
+            None => HashMap::new(),
+        };
         for m in rifx::cast::members_from(movie, first)?
             .into_iter()
             .flatten()
@@ -396,15 +410,17 @@ impl PlayerHost {
                         b.depth as i64,
                     )
                 });
-            let text = matches!(kind, "field" | "text")
-                .then(|| member_text(movie, &m))
+            let styled = matches!(kind, "field" | "text")
+                .then(|| member_text(movie, &m, &fmap))
                 .flatten();
+            let text = styled.as_ref().map(|t| t.text.clone());
             let file_name = m.linked_path();
             self.members.push(MemberInfo {
                 lib,
                 number: m.number,
                 bitmap,
                 text,
+                styled,
                 file_name,
                 style: Vec::new(),
                 script: scripts.get(&m.number).copied(),
@@ -468,6 +484,86 @@ impl PlayerHost {
                 self.members.iter().find(|m| m.lib == l && m.number == num)
             }
         }
+    }
+
+    /// Layout of a field/text member's current text in its box: the width
+    /// of a sprite showing it (else 10000, no wrapping), the authored styles,
+    /// and font/size/style set from Lingo.
+    pub fn measure(&self, lib: i64, number: i64) -> Option<(director::text::Measure, i64)> {
+        use rifx::text::{Run, StyledText};
+        let m = self.member_info(lib, number)?;
+        let text = m.text.clone()?;
+        let mut st = match &m.styled {
+            Some(s) if s.text == text => s.clone(),
+            other => {
+                let style = other
+                    .as_ref()
+                    .and_then(|s| s.runs.first().map(|r| r.style.clone()))
+                    .unwrap_or_default();
+                StyledText {
+                    runs: vec![Run {
+                        start: 0,
+                        end: text.chars().count(),
+                        style,
+                    }],
+                    text,
+                    paragraphs: Vec::new(),
+                }
+            }
+        };
+        let get = |k: &str| m.style.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        for r in &mut st.runs {
+            if let Some(f) = get("font") {
+                r.style.font = f.to_text();
+            }
+            if let Some(sz) = get("fontsize") {
+                r.style.size = sz.to_int().clamp(1, 500) as u16;
+            }
+            if let Some(Value::List(l)) = get("fontstyle") {
+                let has = |n: &str| {
+                    l.borrow()
+                        .iter()
+                        .any(|v| v.to_text().eq_ignore_ascii_case(n))
+                };
+                r.style.bold = has("bold");
+                r.style.italic = has("italic");
+                r.style.underline = has("underline");
+            }
+        }
+        let width = self
+            .sprites
+            .values()
+            .find(|s| s.member == Some((lib, number)))
+            .map(|s| s.width)
+            .filter(|w| *w > 0)
+            .unwrap_or(10_000);
+        Some((
+            director::text::Measure::new(&st, width as f32, self.fonts.as_ref()),
+            width,
+        ))
+    }
+
+    /// `charPosToLoc`, `locToCharPos`, `linePosToLocV` on a member.
+    fn text_function(&self, name: &str, target: &Value, args: &[Value]) -> Option<Value> {
+        let Value::Host(HostRef::Member { lib, number }) = target else {
+            return None;
+        };
+        let (m, _) = self.measure(*lib, *number)?;
+        let a = arg(args, 0);
+        Some(match name {
+            "charpostoloc" => {
+                let (x, y) = m.char_loc(a.to_int().max(1) as usize);
+                Value::Point(x.round() as f64, y.round() as f64)
+            }
+            "loctocharpos" => match a {
+                Value::Point(x, y) => Value::Int(m.char_at(x as f32, y as f32) as i64),
+                _ => return None,
+            },
+            "linepostolocv" => {
+                Value::Int(m.line_baseline(a.to_int().max(1) as usize).round() as i64)
+            }
+            _ => return None,
+        })
     }
 
     /// A member by (cast lib, number).
@@ -782,6 +878,16 @@ impl lingo_vm::Host for PlayerHost {
                 };
                 Value::Int(self.sprite_under(self.mouse, Some(n)).is_some() as i64)
             }
+            "charpostoloc" | "loctocharpos" | "linepostolocv" => {
+                match self.text_function(&name.to_ascii_lowercase(), &a0, &args[1..]) {
+                    Some(v) => v,
+                    None => return Ok(None),
+                }
+            }
+            "updatestage" => {
+                self.stage_updates += 1;
+                Value::Void
+            }
             "sprite" => match &a0 {
                 v @ Value::Host(HostRef::Sprite(_)) => v.clone(),
                 v => Value::Host(HostRef::Sprite(v.to_int())),
@@ -1042,6 +1148,14 @@ impl lingo_vm::Host for PlayerHost {
                 }
             }
         }
+        // `member.charPosToLoc(n)` and friends.
+        if let Some(v) = self.text_function(
+            &name.to_ascii_lowercase(),
+            &Value::Host(target.clone()),
+            args,
+        ) {
+            return Ok(Some(v));
+        }
         // `member.count(#char)` and friends on field/text members.
         if let HostRef::Member { lib, number } = target {
             if name.eq_ignore_ascii_case("count") {
@@ -1115,6 +1229,16 @@ impl lingo_vm::Host for PlayerHost {
                     ("type", Some(m)) => Value::Symbol(m.kind),
                     ("type", None) => Value::sym("empty"),
                     ("text", Some(MemberInfo { text: Some(t), .. })) => Value::Str(t),
+                    ("height" | "width" | "linecount", Some(m))
+                        if matches!(m.kind.as_str(), "field" | "text") && m.text.is_some() =>
+                    {
+                        let (ms, w) = self.measure(m.lib as i64, m.number as i64).unwrap();
+                        match lname.as_str() {
+                            "height" => Value::Int(ms.height().round() as i64),
+                            "linecount" => Value::Int(ms.line_count() as i64),
+                            _ => Value::Int(w),
+                        }
+                    }
                     ("media", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
                         let mut pl = vec![(
                             Value::sym("text"),
@@ -1593,6 +1717,7 @@ mod tests {
                 script: None,
                 bitmap: None,
                 text: None,
+                styled: None,
                 file_name: None,
                 style: Vec::new(),
             });
@@ -1705,6 +1830,7 @@ mod tests {
             script: None,
             bitmap: None,
             text: None,
+            styled: None,
             file_name: None,
             style: Vec::new(),
         });
@@ -1728,5 +1854,42 @@ mod tests {
                 .to_text(),
             "<b>a</b>"
         );
+    }
+
+    #[test]
+    fn text_measurements() {
+        // Regression: "Single Scrollbar".GetMaxScroll calls
+        // charPosToLoc(member, lastChar) (not implemented).
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "text".into(),
+            script: None,
+            bitmap: None,
+            text: Some("ab\rcd".into()),
+            styled: None,
+            file_name: None,
+            style: vec![("fontsize".into(), Value::Int(10))],
+        });
+        let m = Value::Host(HostRef::Member { lib: 1, number: 1 });
+        let p = host
+            .call(&mut vm, "charPosToLoc", &[m.clone(), Value::Int(5)])
+            .unwrap()
+            .unwrap();
+        // ApproxFonts at 10 px: lines 9 + 2 = 11 high, 'c' is 6 wide.
+        assert_eq!(p.to_string(), "point(6, 22)");
+        let h = host
+            .get_prop(&mut vm, &HostRef::Member { lib: 1, number: 1 }, "height")
+            .unwrap()
+            .unwrap();
+        assert_eq!(h.to_int(), 22);
+        let c = host
+            .call(&mut vm, "locToCharPos", &[m, Value::Point(0.0, 15.0)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.to_int(), 4);
     }
 }

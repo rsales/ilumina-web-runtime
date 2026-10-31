@@ -4,6 +4,7 @@
 //! No I/O: the disc files come through [`vfs::DiscFiles`].
 
 pub mod binaryio;
+pub mod fonts;
 pub mod host;
 pub mod mui;
 pub mod stage;

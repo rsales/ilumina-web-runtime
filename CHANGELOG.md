@@ -29,7 +29,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Port M2 slice 3 (started): score sprite intervals with behaviors
   (`rifx`), behavior instances, `beginSprite`, frame events, `sendSprite`,
   sprite properties and the startup order (`player::stage`); `value()`
-  evaluates setting expressions.
+  evaluates setting expressions. Text measuring (`charPosToLoc`,
+  `locToCharPos`, member height) from the renderer's layout; Home's first
+  frame now runs its whole startup.
 
 ### Fixed
 - Port: member numbers now start at the cast's first member (`MCsL`, read

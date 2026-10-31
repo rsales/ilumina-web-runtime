@@ -244,6 +244,7 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
         },
         // --- lists ---
         "list" => Value::list(args.to_vec()),
+        "nothing" => Value::Void,
         "count" => match &a0 {
             Value::List(l) => Value::Int(l.borrow().len() as i64),
             Value::PropList(l) => Value::Int(l.borrow().len() as i64),
@@ -710,6 +711,12 @@ mod tests {
             b("offset", &[Value::str("b"), Value::str("abc")]).to_int(),
             2
         );
+    }
+
+    #[test]
+    fn nothing_does_nothing() {
+        // Regression: "Tooltip Rollover".exitFrame calls `nothing`.
+        assert!(b("nothing", &[]).is_void());
     }
 
     #[test]
