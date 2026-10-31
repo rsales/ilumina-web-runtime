@@ -26,7 +26,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/inventory"));
+                .unwrap_or_else(|| work_dir("inventory"));
             if let Err(e) = inventory(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -36,7 +36,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/valentina"));
+                .unwrap_or_else(|| work_dir("valentina"));
             if let Err(e) = valentina_dump(Path::new(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -46,7 +46,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/qtvr"));
+                .unwrap_or_else(|| work_dir("qtvr"));
             if let Err(e) = qtvr_dump(Path::new(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -81,8 +81,8 @@ fn main() {
         Some("render") if args.len() >= 3 => {
             let frame = args.get(3).and_then(|f| f.parse().ok()).unwrap_or(1);
             let out = args.get(4).map(PathBuf::from).unwrap_or_else(|| {
-                PathBuf::from(format!(
-                    "work/render/{}-{frame}.png",
+                work_dir(&format!(
+                    "render/{}-{frame}.png",
                     args[2].trim_end_matches(".dxr")
                 ))
             });
@@ -95,7 +95,7 @@ fn main() {
             let root = discs_root(&args[1]);
             let movie = args[2].clone();
             let out = args.get(3).map(PathBuf::from).unwrap_or_else(|| {
-                PathBuf::from(format!("work/play/{}.png", movie.trim_end_matches(".dxr")))
+                work_dir(&format!("play/{}.png", movie.trim_end_matches(".dxr")))
             });
             // Lingo recursion is native recursion: run on a big stack.
             let r = std::thread::Builder::new()
@@ -127,7 +127,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/lingo"));
+                .unwrap_or_else(|| work_dir("lingo"));
             if let Err(e) = lingo_dump(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -137,7 +137,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/texts"));
+                .unwrap_or_else(|| work_dir("texts"));
             if let Err(e) = texts_dump(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -147,7 +147,7 @@ fn main() {
             let out = args
                 .get(2)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("work/bitmaps"));
+                .unwrap_or_else(|| work_dir("bitmaps"));
             if let Err(e) = bitmaps_dump(&discs_root(&args[1]), &out) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -180,6 +180,17 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// Default output under the repository's `work/` (git-ignored), whatever
+/// the current directory.
+// Regression: outputs went to `<cwd>/work`, so running from `port/` wrote
+// to `port/work/` while the docs pointed at the repository's `work/`.
+fn work_dir(rel: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .join("work")
+        .join(rel)
 }
 
 /// The `<discs-dir>` argument, checked before any work: a wrong folder gets
@@ -957,4 +968,17 @@ fn lingo_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>
     print!("{summary}");
     println!("-> {}", out.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outputs_go_to_the_repository_work_folder() {
+        let p = work_dir("play/Home.png");
+        let repo = p.parent().unwrap().parent().unwrap().parent().unwrap();
+        assert!(repo.join("AGENTS.md").exists(), "{} is not the repo", repo.display());
+        assert!(p.ends_with("work/play/Home.png"));
+    }
 }

@@ -181,3 +181,5 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   string); don't "fix" it.
 - **Sandbox disk is tight**: build with `CARGO_INCREMENTAL=0`; old Boxedwine
   trees were removed from the sandbox (`/home/claude/bwroot`, `/tmp/bw`).
+- **xtask outputs go to the repository's `work/`** whatever the current
+  directory (they used to land in `<cwd>/work`, e.g. `port/work/`).
