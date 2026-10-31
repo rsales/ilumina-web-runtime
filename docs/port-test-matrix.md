@@ -90,8 +90,9 @@ Slices, each with its own check:
      are valid QuickTime/MP4 headers (asserted on three). The disc copies
      already start with valid headers. ⏳ Check whether the patch bytes
      equal the disc bytes, which matters for `media-prep`.
-   - Next stop (ratchet): `startMovie` → `Nav.mSetPrevAndNextButtons` →
-     `sendSprite`, i.e. slice 3 (sprites and behaviors).
+   - ✅ Owner rerun (2026-10-31): `prepareMovie` completes with the owner's
+     data (one registration dialog, no alerts); `startMovie` stopped at
+     `sendSprite` → slice 3.
    - The disc test is a ratchet: it asserts where each event stops and fails
      if the run regresses or gets further without the table being updated.
    - The host reports a 1024×768 desktop like the Wine reference
@@ -101,9 +102,35 @@ Slices, each with its own check:
    - ⏳ Unverified: integer `x mod 0` (reached by the original code on a fresh
      profile) is treated as `x mod 1` with a warning; confirm on Wine that no
      script error appears at first launch.
-3. ⏳ Sprites and behaviors: `beginSprite`, `prepareFrame`, `exitFrame`,
-   sprite properties (`member`, `loc`, `visible`, `ink`, `blend`), `go`,
-   `the frame`, frame labels, puppets. Home frame 1 then shows Lingo's state.
+3. ⚠️ Sprites and behaviors (in progress, 2026-10-31):
+   - `rifx::score` reads sprite intervals and their behaviors (cast member +
+     the author's settings, a Lingo property-list string). Home: 63
+     intervals, 102 behaviors.
+   - `player::stage`: sprite channels from the score, behavior instances
+     (script properties + settings + `spriteNum`; `new` is not run, ⏳),
+     `beginSprite`, frame events (behaviors → frame script → movie scripts),
+     `sendSprite`/`sendAllSprites` (unhandled → movie scripts → ignored),
+     and `start_movie` in Director's order (prepareMovie, beginSprite,
+     prepareFrame, startMovie, enterFrame, exitFrame).
+   - Sprite properties (member, loc, rect, size, visible, ink, blend,
+     colors, `scriptInstanceList`; unknown ones go to the sprite's behaviors,
+     then to Xtra sprites), `rollover()`, `the rollOver`, mouse position
+     (off stage until the page sends one), `the stageLeft…`, member
+     `fileName` (linked media under the program folder, ⏳), `html`, `media`,
+     style properties, `regPoint`, `count(#char)`; `value()` now evaluates
+     the expressions found in settings (`"…" & QUOTE`, `(member n of castLib
+     m)`, `sprite n`); rect functions; point/rect arithmetic with lists.
+   - **Bug found on the way:** cast member numbers ignored the cast's first
+     member (`MCsL` min member, read in the wrong byte order). GlobalAssets
+     starts at 2, so every sprite and score reference into it was one member
+     off, in M1 rendering too. Fixed in `rifx` (`members_from`), the VM,
+     the host and the compositor.
+   - Component test: every frame-1 behavior's `beginSprite` runs. Next stop
+     (ratchet): `prepareFrame` → "Single Scrollbar" → `charPosToLoc`, i.e.
+     text layout metrics in the player (the compositor's text layout is not
+     reachable from the host yet).
+   - Then: `go`, frame labels, `the frame` loop, puppets, and Home frame 1
+     rendered from the run-time sprite state.
 4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
    page; `go to movie` loads another module.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.

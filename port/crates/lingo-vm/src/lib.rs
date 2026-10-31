@@ -7,6 +7,7 @@
 
 pub mod builtins;
 pub mod chunk;
+pub mod literal;
 pub mod program;
 pub mod value;
 pub mod vm;

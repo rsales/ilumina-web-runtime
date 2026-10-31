@@ -343,6 +343,23 @@ pub fn arith(op: char, a: &Value, b: &Value) -> Result<Value, String> {
             Ok(Date(if op == '+' { x + d } else { x - d }))
         }
         (Point(x1, y1), Point(x2, y2)) => Ok(Point(f(op, *x1, *x2)?, f(op, *y1, *y2)?)),
+        // A point with a 2-item list (`regPoint - [0, h]`), a rect with 4.
+        (Point(x1, y1), List(l)) if l.borrow().len() == 2 => {
+            let l = l.borrow();
+            Ok(Point(
+                f(op, *x1, l[0].to_f64())?,
+                f(op, *y1, l[1].to_f64())?,
+            ))
+        }
+        (Rect(a1, b1, c1, d1), List(l)) if l.borrow().len() == 4 => {
+            let l = l.borrow();
+            Ok(Rect(
+                f(op, *a1, l[0].to_f64())?,
+                f(op, *b1, l[1].to_f64())?,
+                f(op, *c1, l[2].to_f64())?,
+                f(op, *d1, l[3].to_f64())?,
+            ))
+        }
         (Point(x, y), s) if s.number().is_some() => {
             let n = s.to_f64();
             Ok(Point(f(op, *x, n)?, f(op, *y, n)?))
@@ -467,6 +484,7 @@ impl fmt::Display for Value {
                 HostRef::Member { lib, number } => write!(f, "(member {number} of castLib {lib})"),
                 HostRef::CastLib(n) => write!(f, "(castLib {n})"),
                 HostRef::Xtra(n) => write!(f, "<Xtra \"{n}\">"),
+                HostRef::Object { kind, .. } if kind == "stage" => write!(f, "(the Stage)"),
                 HostRef::Object { kind, id } => write!(f, "<{kind} {id}>"),
             },
             Value::ArgList(v, _) => write!(f, "<args {}>", v.len()),

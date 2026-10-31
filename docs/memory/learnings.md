@@ -158,3 +158,15 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - **Component disc tests reach code past a dialog** without special-casing
   it in the engine: run `prepareMovie` (stops at registration), then build
   the objects `init` would build, with `init`'s arguments.
+
+- **Casts can start at member 2** (2026-10-31): `MCsL` stores each
+  library's first/last member (big-endian, even in little-endian XFIR
+  files). CAS* slot 0 is the first member, not member 1. Symptom: a behavior
+  named "OSMenu_Xtra_History" on a sprite whose member was a field.
+- **Behavior settings are Lingo expressions**, not just literals:
+  `"sprite 53: text " & QUOTE & "AddOns" & QUOTE`, `(member 30 of castLib 3)`.
+  `value()` of such a setting returns its leading expression (sprite 53).
+- **`sprite(n).prop` falls through to the behaviors' properties** (OSMenu
+  behavior sets `sprite(n).menuMember` on its own sprite).
+- **Debug prints in tests leak into fixes**: remove scaffolding before
+  committing (a `sed` deleting only the matching lines broke the code).

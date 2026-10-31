@@ -6,6 +6,7 @@
 pub mod binaryio;
 pub mod host;
 pub mod mui;
+pub mod stage;
 pub mod v4md;
 pub mod vfs;
 
@@ -63,17 +64,37 @@ pub fn load_movie(
             .ok_or(format!("{file}: not found"))?;
         loaded.push((lib, name.clone(), bytes));
     }
+    // First member number of each library, from the movie's cast list.
+    let firsts: Vec<u32> = match loaded.first() {
+        Some((_, _, bytes)) => {
+            let movie = rifx::Movie::parse(bytes).map_err(|e| e.to_string())?;
+            rifx::score::cast_libs(&movie)
+                .map_err(|e| e.to_string())?
+                .iter()
+                .map(|l| l.min_member.max(1) as u32)
+                .collect()
+        }
+        None => Vec::new(),
+    };
     for (lib, name, bytes) in &loaded {
         let movie = rifx::Movie::parse(bytes).map_err(|e| e.to_string())?;
+        let first_member = firsts.get(*lib as usize - 1).copied().unwrap_or(1);
         let first = program.scripts.len();
-        program.add_cast(&movie, *lib).map_err(|e| e.to_string())?;
+        program
+            .add_cast_from(&movie, *lib, first_member)
+            .map_err(|e| e.to_string())?;
         let scripts: HashMap<u32, usize> = program.scripts[first..]
             .iter()
             .enumerate()
             .map(|(i, s)| (s.member, first + i))
             .collect();
-        host.add_cast(&movie, *lib, name, &scripts)
+        host.add_cast(&movie, *lib, name, &scripts, first_member)
             .map_err(|e| e.to_string())?;
+        if *lib == 1 {
+            host.score = rifx::score::Score::from_movie(&movie)
+                .map_err(|e| e.to_string())?
+                .map(std::rc::Rc::new);
+        }
     }
     Ok((Vm::new(program), host))
 }

@@ -98,8 +98,18 @@ impl Member {
     }
 }
 
-/// All members of every `CAS*` table in the file, in slot order.
+/// All members of every `CAS*` table in the file, in slot order, numbered
+/// from 1. Use [`members_from`] with the cast library's first member number
+/// (`CastLib::min_member`) to get the numbers sprites and Lingo use.
 pub fn members(movie: &Movie) -> Result<Vec<Vec<Member>>, Error> {
+    members_from(movie, 1)
+}
+
+/// Like [`members`], with slot 0 numbered `first`.
+// Regression: GlobalAssets starts at member 2, so every sprite on it
+// pointed one member off (an OSMenu sprite got the field next to it).
+pub fn members_from(movie: &Movie, first: u32) -> Result<Vec<Vec<Member>>, Error> {
+    let offset = first.max(1) - 1;
     let mut casts = Vec::new();
     for cas in movie.all(CAS) {
         let data = movie.chunk_data(cas.id)?;
@@ -113,7 +123,7 @@ pub fn members(movie: &Movie) -> Result<Vec<Vec<Member>>, Error> {
             if section <= 0 {
                 continue;
             }
-            match member(movie, section, number) {
+            match member(movie, section, number + offset) {
                 Ok(m) => out.push(m),
                 Err(e) => {
                     return Err(Error::BadChunk {

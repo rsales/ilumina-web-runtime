@@ -35,6 +35,15 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 3 started (2026-10-31):** owner rerun: `prepareMovie` completes.
+Score behaviors, `player::stage` (startup order, frame events,
+`sendSprite`) and many sprite/member properties are in; the cast
+first-member bug (GlobalAssets starts at 2; also affected M1 rendering) is
+fixed. Component test: all frame-1 `beginSprite` run; next stop
+`prepareFrame` → `charPosToLoc` (text metrics in the player). Owner: rerun
+the disc test (expected: past beginSprite, stop at `charPosToLoc`) and,
+optionally, re-render Home in the browser (lib 5 sprites change).
+
 **M2 slice 2, latest (2026-10-31):** the owner's run passed registration
 and stopped at `the actorList` in `Poster.POST`; that, offline NetLingo,
 BinaryIO (media unlock as byte patches), `rgb()` and `member.text` are now

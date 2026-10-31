@@ -118,6 +118,33 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
                 s[a - 1..b].iter().collect()
             })
         }
+        // --- rects and points ---
+        "inflate" | "offset" if matches!(a0, Value::Rect(..)) => {
+            let Value::Rect(l, t, r, b) = a0 else {
+                unreachable!()
+            };
+            let (h, v) = (arg(args, 1).to_f64(), arg(args, 2).to_f64());
+            if lname == "inflate" {
+                Value::Rect(l - h, t - v, r + h, b + v)
+            } else {
+                Value::Rect(l + h, t + v, r + h, b + v)
+            }
+        }
+        "intersect" | "union" => match (&a0, &arg(args, 1)) {
+            (Value::Rect(l1, t1, r1, b1), Value::Rect(l2, t2, r2, b2)) => {
+                if lname == "union" {
+                    Value::Rect(l1.min(*l2), t1.min(*t2), r1.max(*r2), b1.max(*b2))
+                } else {
+                    let (l, t, r, b) = (l1.max(*l2), t1.max(*t2), r1.min(*r2), b1.min(*b2));
+                    if l < r && t < b {
+                        Value::Rect(l, t, r, b)
+                    } else {
+                        Value::Rect(0.0, 0.0, 0.0, 0.0)
+                    }
+                }
+            }
+            _ => return Ok(None),
+        },
         "offset" => {
             let (needle, hay) = (
                 a0.to_text().to_lowercase(),
@@ -334,7 +361,9 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
             _ => return Ok(None),
         },
         "getpos" | "getone" | "findpos" => match &a0 {
-            Value::List(l) if lname != "findpos" => Value::Int(
+            // findPos on a linear list searches the values, like getPos
+            // ("Single Scrollbar" relies on it).
+            Value::List(l) => Value::Int(
                 l.borrow()
                     .iter()
                     .position(|v| v.lingo_eq(&arg(args, 1)))
@@ -581,69 +610,7 @@ fn deep_copy(v: &Value) -> Value {
 }
 
 /// `value("…")` for literals: numbers, quoted strings, symbols, lists.
-pub fn value_of(s: &str) -> Value {
-    let t = s.trim();
-    if let Some(n) = parse_number(t) {
-        return n.value();
-    }
-    if let Some(sym) = t.strip_prefix('#') {
-        if sym.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Value::sym(sym);
-        }
-    }
-    if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
-        return Value::str(&t[1..t.len() - 1]);
-    }
-    if t.starts_with('[') && t.ends_with(']') {
-        return parse_list(&t[1..t.len() - 1]);
-    }
-    Value::Void
-}
-
-fn parse_list(inner: &str) -> Value {
-    let inner = inner.trim();
-    if inner == ":" {
-        return Value::prop_list(vec![]);
-    }
-    if inner.is_empty() {
-        return Value::list(vec![]);
-    }
-    let parts = split_top(inner, ',');
-    let is_prop = parts.iter().all(|p| split_top(p, ':').len() == 2);
-    if is_prop {
-        Value::prop_list(
-            parts
-                .iter()
-                .map(|p| {
-                    let kv = split_top(p, ':');
-                    (value_of(&kv[0]), value_of(&kv[1]))
-                })
-                .collect(),
-        )
-    } else {
-        Value::list(parts.iter().map(|p| value_of(p)).collect())
-    }
-}
-
-/// Split at `sep` outside brackets and quotes.
-fn split_top(s: &str, sep: char) -> Vec<String> {
-    let (mut out, mut cur, mut depth, mut quoted) = (Vec::new(), String::new(), 0, false);
-    for c in s.chars() {
-        match c {
-            '"' => quoted = !quoted,
-            '[' if !quoted => depth += 1,
-            ']' if !quoted => depth -= 1,
-            _ => {}
-        }
-        if c == sep && depth == 0 && !quoted {
-            out.push(std::mem::take(&mut cur));
-        } else {
-            cur.push(c);
-        }
-    }
-    out.push(cur);
-    out
-}
+pub use crate::literal::value_of;
 
 #[cfg(test)]
 mod tests {
@@ -671,6 +638,78 @@ mod tests {
         b("add", &[d.clone(), Value::Int(5)]);
         assert_eq!(b("count", &[l]).to_int(), 4);
         assert_eq!(b("count", &[d]).to_int(), 5);
+    }
+
+    #[test]
+    fn find_pos_on_a_linear_list() {
+        // Regression: "Single Scrollbar".resolve calls findPos(["upArrow", …],
+        // "upArrow") on a linear list; it was not implemented.
+        let l = Value::list(vec![Value::str("upArrow"), Value::str("dragger")]);
+        assert_eq!(
+            b("findPos", &[l.clone(), Value::str("DRAGGER")]).to_int(),
+            2
+        );
+        assert_eq!(b("findPos", &[l.clone(), Value::str("x")]).to_int(), 0);
+        // Regression: the findPos change broke getOne on linear lists (Find.new).
+        assert_eq!(b("getOne", &[l, Value::str("dragger")]).to_int(), 2);
+    }
+
+    #[test]
+    fn point_and_rect_with_lists() {
+        // Regression: "Single Scrollbar" computes `regPoint - [0, height]`.
+        use crate::value::arith;
+        let l = Value::list(vec![Value::Int(0), Value::Int(5)]);
+        assert_eq!(
+            arith('-', &Value::Point(3.0, 10.0), &l)
+                .unwrap()
+                .to_string(),
+            "point(3, 5)"
+        );
+        let l4 = Value::list(vec![
+            Value::Int(1),
+            Value::Int(1),
+            Value::Int(1),
+            Value::Int(1),
+        ]);
+        assert_eq!(
+            arith('+', &Value::Rect(0.0, 0.0, 2.0, 2.0), &l4)
+                .unwrap()
+                .to_string(),
+            "rect(1, 1, 3, 3)"
+        );
+    }
+
+    #[test]
+    fn rect_functions() {
+        // Regression: "Single Scrollbar" calls inflate(rect, h, v).
+        let r = Value::Rect(10.0, 10.0, 20.0, 20.0);
+        assert_eq!(
+            b("inflate", &[r.clone(), Value::Int(2), Value::Int(1)]).to_string(),
+            "rect(8, 9, 22, 21)"
+        );
+        assert_eq!(
+            b("offset", &[r.clone(), Value::Int(5), Value::Int(-5)]).to_string(),
+            "rect(15, 5, 25, 15)"
+        );
+        let o = Value::Rect(15.0, 0.0, 30.0, 12.0);
+        assert_eq!(
+            b("intersect", &[r.clone(), o.clone()]).to_string(),
+            "rect(15, 10, 20, 12)"
+        );
+        assert_eq!(
+            b("union", &[r.clone(), o]).to_string(),
+            "rect(10, 0, 30, 20)"
+        );
+        assert_eq!(
+            b("inside", &[Value::Point(10.0, 19.0), r.clone()]).to_int(),
+            1
+        );
+        assert_eq!(b("inside", &[Value::Point(20.0, 19.0), r]).to_int(), 0);
+        // offset() on strings still finds text.
+        assert_eq!(
+            b("offset", &[Value::str("b"), Value::str("abc")]).to_int(),
+            2
+        );
     }
 
     #[test]

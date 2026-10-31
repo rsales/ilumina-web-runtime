@@ -7,7 +7,7 @@
 //! milestone; unsupported members are skipped and reported.
 
 use rifx::bitmap::{bitd_for, to_rgba, unpack, BitmapInfo, Palette};
-use rifx::cast::{members, Member, MemberType};
+use rifx::cast::{Member, MemberType};
 use rifx::score::{cast_libs, CastLib, Score, Sprite};
 use rifx::text::{parse_fmap, parse_stxt, parse_xmed, Align, StyledText};
 use rifx::{FourCC, Movie};
@@ -133,7 +133,10 @@ impl Stage {
                 .read(&file)
                 .ok_or_else(|| Error::Missing(file.clone()))?;
             let m = Movie::parse(&bytes)?;
-            let members = members(&m)?.into_iter().flatten().collect();
+            let members = rifx::cast::members_from(&m, lib.min_member as u32)?
+                .into_iter()
+                .flatten()
+                .collect();
             casts.push(LoadedCast {
                 lib,
                 file,

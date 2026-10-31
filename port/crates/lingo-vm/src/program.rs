@@ -2,7 +2,7 @@
 //! up by name and bytecode decoded once.
 
 use rifx::bytecode::{disassemble, Instr};
-use rifx::cast::{members, ScriptType};
+use rifx::cast::ScriptType;
 use rifx::lingo::{contexts, Context, Literal};
 use rifx::Movie;
 use std::collections::HashMap;
@@ -62,7 +62,17 @@ pub struct Program {
 impl Program {
     /// Add every script in `movie` (a `.dxr` or `.cxt`) as cast library `lib`.
     pub fn add_cast(&mut self, movie: &Movie, lib: u16) -> Result<usize, rifx::Error> {
-        let all = members(movie)?;
+        self.add_cast_from(movie, lib, 1)
+    }
+
+    /// `add_cast` for a cast whose first member number is `first`.
+    pub fn add_cast_from(
+        &mut self,
+        movie: &Movie,
+        lib: u16,
+        first: u32,
+    ) -> Result<usize, rifx::Error> {
+        let all = rifx::cast::members_from(movie, first)?;
         let mut added = 0;
         for ctx in contexts(movie)? {
             let ctx = Rc::new(ctx);

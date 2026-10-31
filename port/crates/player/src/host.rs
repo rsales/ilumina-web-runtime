@@ -23,6 +23,147 @@ pub struct MemberInfo {
     /// Text of field and text members (plain, `\r` line breaks); set by
     /// `member.text = …` at run time.
     pub text: Option<String>,
+    /// Linked media: the path stored by the author (`F:\…\Files\Media\…`),
+    /// or the one Lingo set.
+    pub file_name: Option<String>,
+    /// Display properties Lingo set (`color`, `font`, `fontSize`…; see
+    /// [`MEMBER_STYLE_PROPS`]), for the renderer.
+    pub style: Vec<(String, Value)>,
+}
+
+/// A property of the first behavior instance that declares it.
+fn behavior_prop(instances: &[Value], name: &str) -> Option<Value> {
+    instances.iter().find_map(|i| match i {
+        Value::Object(o) => o.borrow().get(name).cloned(),
+        _ => None,
+    })
+}
+
+fn set_behavior_prop(instances: &[Value], name: &str, v: &Value) -> bool {
+    instances.iter().any(|i| match i {
+        Value::Object(o) => o.borrow_mut().set(name, v.clone()),
+        _ => false,
+    })
+}
+
+/// Plain text of an HTML string as Director's text members show it: tags
+/// dropped, `<br>` and paragraph ends as `\r`, entities decoded.
+pub fn html_to_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut rest = html;
+    while let Some(c) = rest.chars().next() {
+        if c == '<' {
+            let end = rest.find('>').map(|e| e + 1).unwrap_or(rest.len());
+            let tag = rest[1..end.saturating_sub(1).max(1)]
+                .trim()
+                .to_ascii_lowercase();
+            let name = tag.split_whitespace().next().unwrap_or("");
+            if matches!(
+                name,
+                "br" | "br/" | "/p" | "/h1" | "/h2" | "/h3" | "/li" | "/tr"
+            ) {
+                out.push('\r');
+            }
+            rest = &rest[end..];
+        } else if c == '&' {
+            let end = rest.find(';').filter(|&e| e <= 10);
+            let decoded = end.and_then(|e| {
+                let ent = &rest[1..e];
+                match ent {
+                    "amp" => Some('&'),
+                    "lt" => Some('<'),
+                    "gt" => Some('>'),
+                    "quot" => Some('"'),
+                    "apos" => Some('\''),
+                    "nbsp" => Some('\u{a0}'),
+                    "ccedil" => Some('ç'),
+                    "Ccedil" => Some('Ç'),
+                    "ordf" => Some('ª'),
+                    "ordm" => Some('º'),
+                    "copy" => Some('©'),
+                    _ if !ent.starts_with('#') && ent.is_char_boundary(1) => latin1_accent(ent),
+                    _ => ent
+                        .strip_prefix('#')
+                        .and_then(|n| match n.strip_prefix(['x', 'X']) {
+                            Some(h) => u32::from_str_radix(h, 16).ok(),
+                            None => n.parse().ok(),
+                        })
+                        .and_then(char::from_u32),
+                }
+            });
+            match (decoded, end) {
+                (Some(ch), Some(e)) => {
+                    out.push(ch);
+                    rest = &rest[e + 1..];
+                }
+                _ => {
+                    out.push('&');
+                    rest = &rest[1..];
+                }
+            }
+        } else if c == '\n' || c == '\r' {
+            // Source line breaks are white space in HTML.
+            if !out.ends_with(' ') && !out.ends_with('\r') && !out.is_empty() {
+                out.push(' ');
+            }
+            rest = &rest[c.len_utf8()..];
+        } else {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    out.trim_end_matches('\r').to_string()
+}
+
+/// `&aacute;`-style entities for Latin-1 accented letters.
+fn latin1_accent(ent: &str) -> Option<char> {
+    let (base, mark) = ent.split_at(1);
+    let table: &[(&str, &str, &str)] = &[
+        ("acute", "aeiouyAEIOUY", "áéíóúýÁÉÍÓÚÝ"),
+        ("grave", "aeiouAEIOU", "àèìòùÀÈÌÒÙ"),
+        ("circ", "aeiouAEIOU", "âêîôûÂÊÎÔÛ"),
+        ("tilde", "anoANO", "ãñõÃÑÕ"),
+        ("uml", "aeiouyAEIOU", "äëïöüÿÄËÏÖÜ"),
+    ];
+    let (_, from, to) = table.iter().find(|(m, _, _)| *m == mark)?;
+    let i = from.chars().position(|c| base.starts_with(c))?;
+    to.chars().nth(i)
+}
+
+/// Member display properties scripts may set and read back.
+pub const MEMBER_STYLE_PROPS: &[&str] = &[
+    "color",
+    "bgcolor",
+    "forecolor",
+    "backcolor",
+    "font",
+    "fontsize",
+    "fontstyle",
+    "alignment",
+    "wordwrap",
+    "boxtype",
+    "border",
+    "margin",
+    "lineheight",
+    "editable",
+    "antialias",
+    "autotab",
+    "hilite",
+    "fixedlinespace",
+    "topspacing",
+    "kerning",
+];
+
+/// Where Director finds an author's linked-media path in the installed
+/// program: the part from `Files\` on, under the program folder (the
+/// author's drive and folder no longer exist). ⏳ Check what `fileName`
+/// reports on Wine.
+pub fn installed_path(stored: &str) -> String {
+    let lower = stored.to_ascii_lowercase();
+    match lower.find("\\files\\") {
+        Some(i) => format!("{APP_DIR}{}", &stored[i + 1..]),
+        None => stored.to_string(),
+    }
 }
 
 /// Plain text of a field (STXT) or text (XMED) member, if it has one.
@@ -87,6 +228,16 @@ pub struct PlayerHost {
     pub network: Vec<String>,
     dialogs: HashMap<i64, crate::mui::Dialog>,
     binfiles: HashMap<i64, crate::binaryio::BinFile>,
+    /// The movie's score (from its internal cast), if any.
+    pub score: Option<std::rc::Rc<rifx::score::Score>>,
+    /// Sprite channels with something on them, by sprite number.
+    pub sprites: std::collections::BTreeMap<u16, crate::stage::SpriteState>,
+    /// The current frame script's instance.
+    pub frame_script: Option<Value>,
+    /// Current frame (1-based; 0 = before the first).
+    pub frame: usize,
+    /// Mouse position on the stage; off the stage until the page sends one.
+    pub mouse: (i64, i64),
 }
 
 fn arg(args: &[Value], i: usize) -> Value {
@@ -185,6 +336,11 @@ impl PlayerHost {
             network: Vec::new(),
             dialogs: HashMap::new(),
             binfiles: HashMap::new(),
+            score: None,
+            sprites: Default::default(),
+            frame_script: None,
+            frame: 0,
+            mouse: (-1, -1),
         }
     }
 
@@ -196,12 +352,16 @@ impl PlayerHost {
         lib: u16,
         name: &str,
         scripts: &HashMap<u32, usize>,
+        first: u32,
     ) -> Result<(), rifx::Error> {
         while self.cast_libs.len() < lib as usize {
             self.cast_libs.push(String::new());
         }
         self.cast_libs[lib as usize - 1] = name.to_string();
-        for m in rifx::cast::members(movie)?.into_iter().flatten() {
+        for m in rifx::cast::members_from(movie, first)?
+            .into_iter()
+            .flatten()
+        {
             use rifx::cast::MemberType::*;
             let kind = match m.kind {
                 Bitmap => "bitmap",
@@ -239,11 +399,14 @@ impl PlayerHost {
             let text = matches!(kind, "field" | "text")
                 .then(|| member_text(movie, &m))
                 .flatten();
+            let file_name = m.linked_path();
             self.members.push(MemberInfo {
                 lib,
                 number: m.number,
                 bitmap,
                 text,
+                file_name,
+                style: Vec::new(),
                 script: scripts.get(&m.number).copied(),
                 name: m.name,
                 kind: kind.into(),
@@ -307,7 +470,181 @@ impl PlayerHost {
         }
     }
 
+    /// A member by (cast lib, number).
+    pub fn member_info(&self, lib: i64, number: i64) -> Option<&MemberInfo> {
+        self.members
+            .iter()
+            .find(|m| m.lib as i64 == lib && m.number as i64 == number)
+    }
+
+    /// The topmost visible sprite whose rect holds `p` (only `only`, if
+    /// given). Rects come from the sprite's member geometry.
+    pub fn sprite_under(&self, p: (i64, i64), only: Option<i64>) -> Option<i64> {
+        let mut hits: Vec<(i64, i64)> = Vec::new();
+        let numbers: Vec<u16> = self.sprites.keys().copied().collect();
+        for n in numbers {
+            if only.is_some_and(|o| o != n as i64) {
+                continue;
+            }
+            let st = &self.sprites[&n];
+            if !st.visible || st.member.is_none() {
+                continue;
+            }
+            let z = st.loc_z;
+            if let Some(Value::Rect(l, t, r, b)) = self.sprite_prop(n as i64, "rect") {
+                let (x, y) = (p.0 as f64, p.1 as f64);
+                if l <= x && x < r && t <= y && y < b {
+                    hits.push((z, n as i64));
+                }
+            }
+        }
+        hits.into_iter().max().map(|(_, n)| n)
+    }
+
+    /// Get a sprite property (`sprite(n).prop`, `the prop of sprite n`).
+    fn sprite_prop(&self, n: i64, lname: &str) -> Option<Value> {
+        let st = self.sprites.get(&(n as u16)).cloned().unwrap_or_default();
+        let member_ref = |m: Option<(i64, i64)>| match m {
+            Some((lib, number)) => Value::Host(HostRef::Member { lib, number }),
+            None => Value::Host(HostRef::Member { lib: 0, number: 0 }),
+        };
+        let reg = st
+            .member
+            .and_then(|(l, m)| self.member_info(l, m))
+            .and_then(|m| m.bitmap)
+            .map(|b| (b.2, b.3))
+            .unwrap_or((0, 0));
+        let (l, t) = (st.loc.0 - reg.0, st.loc.1 - reg.1);
+        Some(match lname {
+            "member" => member_ref(st.member),
+            "membernum" => Value::Int(st.member.map(|m| m.1).unwrap_or(0)),
+            "castnum" => Value::Int(st.member.map(|(l, m)| ((l - 1) << 16) | m).unwrap_or(0)),
+            "castlibnum" => Value::Int(st.member.map(|m| m.0).unwrap_or(0)),
+            "loc" => Value::Point(st.loc.0 as f64, st.loc.1 as f64),
+            "loch" => Value::Int(st.loc.0),
+            "locv" => Value::Int(st.loc.1),
+            "locz" => Value::Int(st.loc_z),
+            "width" => Value::Int(st.width),
+            "height" => Value::Int(st.height),
+            "rect" => Value::Rect(
+                l as f64,
+                t as f64,
+                (l + st.width) as f64,
+                (t + st.height) as f64,
+            ),
+            "left" => Value::Int(l),
+            "top" => Value::Int(t),
+            "right" => Value::Int(l + st.width),
+            "bottom" => Value::Int(t + st.height),
+            "visible" | "visibility" => Value::Int(st.visible as i64),
+            "puppet" => Value::Int(st.puppet as i64),
+            "ink" => Value::Int(st.ink),
+            "blend" => Value::Int(st.blend),
+            "forecolor" => Value::Int(st.fore_color),
+            "backcolor" => Value::Int(st.back_color),
+            "cursor" => st.cursor.clone(),
+            "spritenum" => Value::Int(n),
+            "scriptinstancelist" => Value::list(st.instances.clone()),
+            // Otherwise a property of one of its behaviors (Director looks
+            // through the scriptInstanceList), then of its Xtra.
+            p => match behavior_prop(&st.instances, p) {
+                Some(v) => v,
+                None => st.xtra_props.iter().find(|(k, _)| k == p)?.1.clone(),
+            },
+        })
+    }
+
+    /// Set a sprite property; false when not supported.
+    fn set_sprite_prop(&mut self, n: i64, lname: &str, v: &Value) -> bool {
+        let new_member = match (lname, v) {
+            ("member", Value::Host(HostRef::Member { lib, number })) => Some((*lib, *number)),
+            ("membernum", v) => {
+                let lib = self
+                    .sprites
+                    .get(&(n as u16))
+                    .and_then(|s| s.member)
+                    .map(|m| m.0)
+                    .unwrap_or(1);
+                Some((lib, v.to_int()))
+            }
+            ("member" | "castnum", v) if v.to_int() > 0 => {
+                let c = v.to_int();
+                Some(((c >> 16) + 1, c & 0xffff))
+            }
+            _ => None,
+        };
+        let dims = new_member
+            .and_then(|(l, m)| self.member_info(l, m))
+            .and_then(|m| m.bitmap)
+            .map(|b| (b.0, b.1));
+        let is_xtra = self
+            .sprites
+            .get(&(n as u16))
+            .and_then(|s| s.member)
+            .and_then(|(l, m)| self.member_info(l, m))
+            .is_some_and(|m| matches!(m.kind.as_str(), "xtra" | "flash"));
+        let reg = self
+            .sprites
+            .get(&(n as u16))
+            .and_then(|s| s.member)
+            .and_then(|(l, m)| self.member_info(l, m))
+            .and_then(|m| m.bitmap)
+            .map(|b| (b.2, b.3))
+            .unwrap_or((0, 0));
+        let st = self.sprites.entry(n as u16).or_default();
+        match lname {
+            // Moves and stretches the sprite (⏳ the reg point scales too).
+            "rect" => match v {
+                Value::Rect(l, t, r, b) => {
+                    st.width = (r - l) as i64;
+                    st.height = (b - t) as i64;
+                    st.loc = (*l as i64 + reg.0, *t as i64 + reg.1);
+                }
+                _ => return false,
+            },
+            "member" | "membernum" | "castnum" => {
+                let Some(m) = new_member else { return false };
+                st.member = (m.1 > 0).then_some(m);
+                if let Some((w, h)) = dims {
+                    st.width = w;
+                    st.height = h;
+                }
+            }
+            "loc" => match v {
+                Value::Point(x, y) => st.loc = (*x as i64, *y as i64),
+                _ => return false,
+            },
+            "loch" => st.loc.0 = v.to_int(),
+            "locv" => st.loc.1 = v.to_int(),
+            "locz" => st.loc_z = v.to_int(),
+            "width" => st.width = v.to_int(),
+            "height" => st.height = v.to_int(),
+            "visible" | "visibility" => st.visible = v.truthy(),
+            "puppet" => st.puppet = v.truthy(),
+            "ink" => st.ink = v.to_int(),
+            "blend" => st.blend = v.to_int(),
+            "forecolor" => st.fore_color = v.to_int(),
+            "backcolor" => st.back_color = v.to_int(),
+            "cursor" => st.cursor = v.clone(),
+            "scriptinstancelist" => match v {
+                Value::List(l) => st.instances = l.borrow().clone(),
+                _ => return false,
+            },
+            p if set_behavior_prop(&st.instances, p, v) => {}
+            // Any other property belongs to the Xtra of an Xtra sprite.
+            p if is_xtra => match st.xtra_props.iter_mut().find(|(k, _)| k == p) {
+                Some(slot) => slot.1 = v.clone(),
+                None => st.xtra_props.push((p.to_string(), v.clone())),
+            },
+            _ => return false,
+        }
+        true
+    }
+
     fn member_value(&self, which: &Value, lib: Option<&Value>) -> Value {
+        if let Value::Host(HostRef::Member { .. }) = which {
+            return which.clone(); // member(aMember)
+        }
         match self.find_member(which, lib) {
             Some(m) => Value::Host(HostRef::Member {
                 lib: m.lib as i64,
@@ -424,9 +761,38 @@ impl PlayerHost {
 }
 
 impl lingo_vm::Host for PlayerHost {
-    fn call(&mut self, _vm: &mut Vm, name: &str, args: &[Value]) -> HostResult<Option<Value>> {
+    fn call(&mut self, vm: &mut Vm, name: &str, args: &[Value]) -> HostResult<Option<Value>> {
         let a0 = arg(args, 0);
         let v = match name.to_ascii_lowercase().as_str() {
+            "sendsprite" => {
+                let n = match &a0 {
+                    Value::Host(HostRef::Sprite(n)) => *n,
+                    v => v.to_int(),
+                };
+                let msg = arg(args, 1).to_text();
+                let rest = args.get(2..).unwrap_or(&[]).to_vec();
+                return crate::stage::send_sprite(vm, self, n as u16, &msg, &rest)
+                    .map(Some)
+                    .map_err(|e| e.message);
+            }
+            "rollover" if !args.is_empty() => {
+                let n = match &a0 {
+                    Value::Host(HostRef::Sprite(n)) => *n,
+                    v => v.to_int(),
+                };
+                Value::Int(self.sprite_under(self.mouse, Some(n)).is_some() as i64)
+            }
+            "sprite" => match &a0 {
+                v @ Value::Host(HostRef::Sprite(_)) => v.clone(),
+                v => Value::Host(HostRef::Sprite(v.to_int())),
+            },
+            "sendallsprites" => {
+                let msg = a0.to_text();
+                let rest = args.get(1..).unwrap_or(&[]).to_vec();
+                return crate::stage::send_all_sprites(vm, self, &msg, &rest)
+                    .map(Some)
+                    .map_err(|e| e.message);
+            }
             "xtra" => Value::Host(HostRef::Xtra(a0.to_text())),
             "new" => match &a0 {
                 Value::Host(HostRef::Xtra(x)) => {
@@ -676,6 +1042,31 @@ impl lingo_vm::Host for PlayerHost {
                 }
             }
         }
+        // `member.count(#char)` and friends on field/text members.
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("count") {
+                if let Some(t) = self.member_info(*lib, *number).and_then(|m| m.text.clone()) {
+                    use lingo_vm::chunk::{count, Kind};
+                    let kind = match arg(args, 0).to_text().to_ascii_lowercase().as_str() {
+                        "char" | "chars" => Kind::Char,
+                        "word" | "words" => Kind::Word,
+                        "item" | "items" => Kind::Item,
+                        "line" | "lines" => Kind::Line,
+                        _ => return Ok(None),
+                    };
+                    let delim = self
+                        .settings
+                        .get("itemdelimiter")
+                        .map(|d| d.to_text().chars().next().unwrap_or(','))
+                        .unwrap_or(',');
+                    return Ok(Some(Value::Int(count(&t, kind, delim) as i64)));
+                }
+            }
+        }
+        // `member(aMember)` reaches here first (object-first dispatch).
+        if matches!(target, HostRef::Member { .. }) && name.eq_ignore_ascii_case("member") {
+            return Ok(Some(Value::Host(target.clone())));
+        }
         if let HostRef::Xtra(x) = target {
             // `xtra("X").register(key)`: see `register` in `call`.
             if name.eq_ignore_ascii_case("register") {
@@ -709,6 +1100,14 @@ impl lingo_vm::Host for PlayerHost {
                     .cloned();
                 match (lname.as_str(), m) {
                     ("number", Some(m)) => Value::Int(((m.lib as i64 - 1) << 16) | m.number as i64),
+                    // An empty slot of a real cast (a sprite can still point
+                    // at it): number and an empty name, type #empty.
+                    ("number", None) if *lib > 0 && *number > 0 => {
+                        Value::Int(((*lib - 1) << 16) | *number)
+                    }
+                    ("membernum", None) if *lib > 0 && *number > 0 => Value::Int(*number),
+                    ("castlibnum", None) if *lib > 0 && *number > 0 => Value::Int(*lib),
+                    ("name", None) if *lib > 0 && *number > 0 => Value::str(""),
                     ("number", None) => Value::Int(-1),
                     ("membernum", Some(m)) => Value::Int(m.number as i64),
                     ("castlibnum", Some(m)) => Value::Int(m.lib as i64),
@@ -716,6 +1115,28 @@ impl lingo_vm::Host for PlayerHost {
                     ("type", Some(m)) => Value::Symbol(m.kind),
                     ("type", None) => Value::sym("empty"),
                     ("text", Some(MemberInfo { text: Some(t), .. })) => Value::Str(t),
+                    ("media", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
+                        let mut pl = vec![(
+                            Value::sym("text"),
+                            Value::Str(m.text.clone().unwrap_or_default()),
+                        )];
+                        if let Some((_, h)) = m.style.iter().find(|(k, _)| k == "html") {
+                            pl.push((Value::sym("html"), h.clone()));
+                        }
+                        Value::prop_list(pl)
+                    }
+                    (p, Some(m)) if m.style.iter().any(|(k, _)| k == p) => m
+                        .style
+                        .iter()
+                        .find(|(k, _)| k == p)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_default(),
+                    ("filename", Some(m)) => Value::Str(
+                        m.file_name
+                            .as_deref()
+                            .map(installed_path)
+                            .unwrap_or_default(),
+                    ),
                     (
                         "width",
                         Some(MemberInfo {
@@ -767,6 +1188,10 @@ impl lingo_vm::Host for PlayerHost {
                     None => return Ok(self.missing_prop(target, name)),
                 },
             },
+            HostRef::Sprite(n) => match self.sprite_prop(*n, &lname) {
+                Some(v) => v,
+                None => return Ok(self.missing_prop(target, name)),
+            },
             HostRef::CastLib(n) => match lname.as_str() {
                 "name" => Value::Str(
                     self.cast_libs
@@ -789,6 +1214,11 @@ impl lingo_vm::Host for PlayerHost {
         name: &str,
         value: &Value,
     ) -> HostResult<bool> {
+        if let HostRef::Sprite(n) = target {
+            if self.set_sprite_prop(*n, &name.to_ascii_lowercase(), value) {
+                return Ok(true);
+            }
+        }
         if let HostRef::Member { lib, number } = target {
             if name.eq_ignore_ascii_case("text") {
                 if let Some(m) = self
@@ -802,6 +1232,70 @@ impl lingo_vm::Host for PlayerHost {
                     }
                 }
             }
+            let lname = name.to_ascii_lowercase();
+            if matches!(lname.as_str(), "html" | "media") {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    if matches!(m.kind.as_str(), "field" | "text") {
+                        // `media` of a text member: its text and HTML (see get).
+                        let (text, html) = match (lname.as_str(), value) {
+                            ("html", v) => (html_to_text(&v.to_text()), Some(v.to_text())),
+                            (_, v @ Value::PropList(_)) => (
+                                crate::mui::prop(v, "text").to_text(),
+                                Some(crate::mui::prop(v, "html"))
+                                    .filter(|h| !h.is_void())
+                                    .map(|h| h.to_text()),
+                            ),
+                            _ => return Ok(false),
+                        };
+                        m.text = Some(text);
+                        m.style.retain(|(k, _)| k != "html");
+                        if let Some(h) = html {
+                            m.style.push(("html".into(), Value::Str(h)));
+                        }
+                        return Ok(true);
+                    }
+                }
+            }
+            if MEMBER_STYLE_PROPS.contains(&lname.as_str()) {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    match m.style.iter_mut().find(|(k, _)| *k == lname) {
+                        Some(slot) => slot.1 = value.clone(),
+                        None => m.style.push((lname, value.clone())),
+                    }
+                    return Ok(true);
+                }
+            }
+            if let ("regpoint", Value::Point(x, y)) = (lname.as_str(), value) {
+                if let Some(MemberInfo {
+                    bitmap: Some(b), ..
+                }) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    b.2 = *x as i64;
+                    b.3 = *y as i64;
+                    return Ok(true);
+                }
+            }
+            if name.eq_ignore_ascii_case("fileName") {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    m.file_name = Some(value.to_text());
+                    return Ok(true);
+                }
+            }
         }
         self.note(format!("set {}.{name}", Value::Host(target.clone()).ilk()));
         Ok(false)
@@ -809,7 +1303,8 @@ impl lingo_vm::Host for PlayerHost {
 
     fn the(&mut self, _vm: &mut Vm, name: &str) -> HostResult<Option<Value>> {
         let lname = name.to_ascii_lowercase();
-        if lname == "stage" {
+        // The stage is the only window (no MIAWs yet).
+        if lname == "stage" || lname == "activewindow" {
             return Ok(Some(Value::Host(HostRef::Object {
                 kind: "stage".into(),
                 id: 0,
@@ -997,6 +1492,22 @@ impl PlayerHost {
             "moviepath" => Value::str(format!("{APP_DIR}Files\\")),
             "applicationpath" => Value::str(APP_DIR),
             "moviename" => Value::str(self.movie_name.clone()),
+            "frame" => Value::Int(self.frame as i64),
+            // The stage fills the 1024×768 desktop (as on the Wine reference).
+            "stageleft" => Value::Int((self.screen.0 - self.stage.0) / 2),
+            "stagetop" => Value::Int((self.screen.1 - self.stage.1) / 2),
+            "stageright" => Value::Int((self.screen.0 + self.stage.0) / 2),
+            "stagebottom" => Value::Int((self.screen.1 + self.stage.1) / 2),
+            "rollover" => Value::Int(self.sprite_under(self.mouse, None).unwrap_or(0)),
+            "mouseh" => Value::Int(self.mouse.0),
+            "mousev" => Value::Int(self.mouse.1),
+            "mouseloc" => Value::Point(self.mouse.0 as f64, self.mouse.1 as f64),
+            "lastchannel" => Value::Int(
+                self.score
+                    .as_ref()
+                    .map(|s| s.channels as i64 - 6)
+                    .unwrap_or(0),
+            ),
             "runmode" => Value::str("Projector"),
             "platform" => Value::str("Windows,32"),
             "productversion" => Value::str("9.0"),
@@ -1082,14 +1593,46 @@ mod tests {
                 script: None,
                 bitmap: None,
                 text: None,
+                file_name: None,
+                style: Vec::new(),
             });
         }
         let field = HostRef::Member { lib: 1, number: 1 };
         assert!(host
             .set_prop(&mut vm, &field, "text", &Value::str("a\rb"))
             .unwrap());
+        // Regression: SpriteMgr compares `string(the activeWindow)` with
+        // "(the Stage)".
+        let w = host.the(&mut vm, "activeWindow").unwrap().unwrap();
+        assert_eq!(w.to_text(), "(the Stage)");
         let got = host.get_prop(&mut vm, &field, "TEXT").unwrap().unwrap();
         assert_eq!(got.to_text(), "a\rb");
+        // Regression: Button.beginSprite read `sprite(n).member.name` of a
+        // sprite on an empty cast slot (GlobalAssets 69) and stopped.
+        let empty = HostRef::Member { lib: 1, number: 9 };
+        let name = host.get_prop(&mut vm, &empty, "name").unwrap().unwrap();
+        assert_eq!(name.to_text(), "");
+        let ty = host.get_prop(&mut vm, &empty, "type").unwrap().unwrap();
+        assert_eq!(ty.to_text(), "empty");
+        // Regression: "Rollover Add-ons" sets `member(…).color` (stopped).
+        assert!(host
+            .set_prop(&mut vm, &field, "color", &Value::Color(1, 2, 3))
+            .unwrap());
+        let c = host.get_prop(&mut vm, &field, "COLOR").unwrap().unwrap();
+        assert_eq!(c.to_string(), "rgb( 1, 2, 3 )");
+        // Regression: "Single Scrollbar" sets `sprite(n).rect`.
+        let sp = HostRef::Sprite(3);
+        assert!(host
+            .set_prop(&mut vm, &sp, "rect", &Value::Rect(10.0, 20.0, 40.0, 25.0))
+            .unwrap());
+        let r = host.get_prop(&mut vm, &sp, "rect").unwrap().unwrap();
+        assert_eq!(r.to_string(), "rect(10, 20, 40, 25)");
+        // Regression: "Single Scrollbar" counts `mFld1.count(#char)`.
+        let n = host
+            .method(&mut vm, &field, "count", &[Value::sym("char")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(n.to_int(), 3);
         let bitmap = HostRef::Member { lib: 1, number: 2 };
         assert!(!host
             .set_prop(&mut vm, &bitmap, "text", &Value::str("x"))
@@ -1132,5 +1675,58 @@ mod tests {
             4146
         );
         assert_eq!(host.network, ["postNetText example.invalid"]);
+    }
+
+    #[test]
+    fn linked_media_resolve_under_the_program_folder() {
+        // Regression: ModuleButtonNew.beginSprite reads `member(m).fileName`
+        // (and `member(aMember)` must return the member itself).
+        assert_eq!(
+            installed_path("F:\\iLumina Portuguese\\Files\\Media\\Thumbnails\\a.jpg"),
+            format!("{APP_DIR}Files\\Media\\Thumbnails\\a.jpg")
+        );
+        assert_eq!(installed_path("x.jpg"), "x.jpg");
+    }
+
+    #[test]
+    fn html_of_text_members() {
+        // Regression: "Clickable text behavior" sets `member.html` (stopped).
+        assert_eq!(
+            html_to_text("<p>Bem-vindo &amp; <b>ol&aacute;</b><br>x&#233;</p>\n<p>y</p>"),
+            "Bem-vindo & olá\rxé\ry"
+        );
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "text".into(),
+            script: None,
+            bitmap: None,
+            text: None,
+            file_name: None,
+            style: Vec::new(),
+        });
+        let t = HostRef::Member { lib: 1, number: 1 };
+        assert!(host
+            .set_prop(&mut vm, &t, "html", &Value::str("<b>a</b>"))
+            .unwrap());
+        let media = host.get_prop(&mut vm, &t, "media").unwrap().unwrap();
+        assert!(host.set_prop(&mut vm, &t, "media", &media).unwrap());
+        assert_eq!(
+            host.get_prop(&mut vm, &t, "text")
+                .unwrap()
+                .unwrap()
+                .to_text(),
+            "a"
+        );
+        assert_eq!(
+            host.get_prop(&mut vm, &t, "html")
+                .unwrap()
+                .unwrap()
+                .to_text(),
+            "<b>a</b>"
+        );
     }
 }

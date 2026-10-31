@@ -36,24 +36,21 @@ fn big_stack(f: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-/// Where each movie event stops today without the owner's registration
-/// data. A ratchet: the test fails if the run regresses *or* gets further,
-/// so this table (and the test matrix) must be updated with every step.
-/// `None` means the event must complete.
+/// Where the movie's startup (`player::stage::start_movie`: prepareMovie,
+/// beginSprite, prepareFrame, startMovie, enterFrame, exitFrame) stops
+/// today. A ratchet: the test fails if the run regresses *or* gets further,
+/// so this (and the test matrix) must be updated with every step.
 // Regression: the test used to pass while both events printed "stopped".
-const EXPECTED: &[(&str, Option<&str>)] = &[
-    // First-run registration dialog (Mui), as on a fresh Wine profile. A user
-    // who only closes it gets it again: registration is required.
-    (
-        "prepareMovie",
-        Some("Registre Sua Cópia do iLúmina\" shown 3 times"),
-    ),
-    // Consequence: goMenuMgr is created later in init.
-    (
-        "startMovie",
-        Some("LocalizeModuleNameForHistory not found for void"),
-    ),
-];
+/// Without the owner's data: the first-run registration dialog (Mui), as on
+/// a fresh Wine profile; a user who only closes it gets it again.
+const STOP_WITHOUT_OWNER: (&str, &str) = (
+    "prepareMovie",
+    "Registre Sua Cópia do iLúmina\" shown 3 times",
+);
+/// With the owner's data (2026-10-31 run on the Mac: prepareMovie completes)
+/// the run reaches the frame; it must not fall back to stops already fixed.
+// Regression: registration accepted, then `the actorList` in Poster.POST.
+const FIXED_OWNER_STOPS: &[&str] = &["Registre Sua C", "the actorList", "sendSprite"];
 
 #[test]
 fn home_movie_events() {
@@ -96,38 +93,39 @@ fn home_movie_events_inner() {
         t
     };
     eprintln!("cast libs: {:?}; owner data: {with_owner}", host.cast_libs);
-    for &(event, expected) in EXPECTED {
-        let r = vm.movie_event(&mut host, event, vec![]);
-        match &r {
-            Ok(n) => eprintln!("{event}: OK ({n} handler(s))"),
-            Err(e) => eprintln!("{event}: stopped: {}", mask(&e.to_string())),
+    let steps = player::stage::start_movie(&mut vm, &mut host);
+    for (step, r) in &steps {
+        match r {
+            Ok(()) => eprintln!("{step}: OK"),
+            Err(e) => eprintln!("{step}: stopped: {}", mask(&e.to_string())),
         }
-        if with_owner {
-            // With the owner's data the run goes further; it must not fall
-            // back to stops already fixed on that path. (Full ratchet once
-            // the path is set from real runs.)
-            // Regression: registration accepted, then `the actorList` in
-            // Poster.POST was missing.
-            if let Err(e) = &r {
-                for fixed in ["Registre Sua C", "the actorList"] {
-                    assert!(
-                        !e.message.contains(fixed),
-                        "{event}: back at a fixed stop ({fixed})"
-                    );
-                }
+    }
+    let (last, r) = steps.last().expect("at least prepareMovie");
+    if with_owner {
+        assert_eq!(steps[0].0, "prepareMovie");
+        assert!(
+            steps[0].1.is_ok() || steps.len() == 1,
+            "prepareMovie must complete"
+        );
+        if let Err(e) = r {
+            for fixed in FIXED_OWNER_STOPS {
+                assert!(
+                    !e.message.contains(fixed),
+                    "{last}: back at a fixed stop ({fixed})"
+                );
             }
-            continue;
         }
-        match (expected, r) {
-            (None, Ok(_)) => {}
-            (None, Err(e)) => panic!("{event} must complete, stopped: {e}"),
-            (Some(stop), Err(e)) => assert!(
-                e.message.contains(stop),
-                "{event} stopped elsewhere (update EXPECTED): {e}"
-            ),
-            (Some(stop), Ok(_)) => {
-                panic!("{event} now completes (was stopping at {stop:?}): update EXPECTED")
+    } else {
+        let (step, stop) = STOP_WITHOUT_OWNER;
+        match r {
+            Err(e) => {
+                assert_eq!(
+                    *last, step,
+                    "stopped at another step (update the ratchet): {e}"
+                );
+                assert!(e.message.contains(stop), "{last} stopped elsewhere: {e}");
             }
+            Ok(()) => panic!("startup now completes without the owner: update the ratchet"),
         }
     }
     eprintln!("dialogs: {}", mask(&format!("{:?}", host.dialogs_shown)));
@@ -166,8 +164,8 @@ const MANAGER_STOPS: &[(&str, &str)] = &[];
 
 /// Where the rest of the registered path stops (ratchet).
 const REST_STOPS: &[(&str, &str)] = &[
-    // Sprites and behaviors are M2 slice 3.
-    ("startMovie", "handler #sendSprite"),
+    // Text layout metrics ("Single Scrollbar" measures its field).
+    ("prepareFrame", "handler #charPosToLoc"),
 ];
 
 #[test]
@@ -248,11 +246,25 @@ fn home_managers_build_inner() {
         vm.set_global("goCurrentModule", v.clone());
     }
     rest.push(("new(script \"Home Module\")", r));
-    rest.push((
-        "startMovie",
-        vm.movie_event(&mut host, "startMovie", vec![])
-            .map(|n| Value::Int(n as i64)),
-    ));
+    let began =
+        player::stage::begin_frame(&mut vm, &mut host, 1).map(|v| Value::Int(v.len() as i64));
+    let began_ok = began.is_ok();
+    rest.push(("beginSprite", began));
+    for ev in ["prepareFrame", "startMovie", "enterFrame", "exitFrame"] {
+        if !began_ok {
+            break;
+        }
+        let r = if ev == "startMovie" {
+            vm.movie_event(&mut host, ev, vec![]).map(|_| Value::Void)
+        } else {
+            player::stage::frame_event(&mut vm, &mut host, ev).map(|_| Value::Void)
+        };
+        let stop = r.is_err();
+        rest.push((ev, r));
+        if stop {
+            break;
+        }
+    }
     for (step, r) in &rest {
         match r {
             Ok(_) => eprintln!("{step}: OK"),

@@ -317,6 +317,43 @@ impl Vm {
         }
     }
 
+    /// A behavior instance: the script's properties, then the author's
+    /// settings from the score and `spriteNum`; its `new` is not run (⏳
+    /// Director's behaviors initialise in `beginSprite`).
+    pub fn new_behavior(
+        &mut self,
+        script: usize,
+        params: &[(String, Value)],
+        sprite: i64,
+    ) -> Value {
+        let mut props: Vec<(String, Value)> = self.program.scripts[script]
+            .props
+            .iter()
+            .map(|p| (p.clone(), Value::Void))
+            .collect();
+        let mut inst = Instance {
+            script,
+            props: Vec::new(),
+        };
+        for (k, v) in params
+            .iter()
+            .cloned()
+            .chain([("spriteNum".to_string(), Value::Int(sprite))])
+        {
+            match props.iter_mut().find(|(p, _)| p.eq_ignore_ascii_case(&k)) {
+                Some(slot) => slot.1 = v,
+                None => props.push((k, v)),
+            }
+        }
+        inst.props = props;
+        Value::Object(Rc::new(RefCell::new(inst)))
+    }
+
+    /// True when the object (or its ancestors) has handler `name`.
+    pub fn has_method(&self, o: &ObjectRef, name: &str) -> bool {
+        self.find_method(o, name).is_some()
+    }
+
     /// A handler in the object's script or its `ancestor` chain.
     fn find_method(&self, o: &ObjectRef, name: &str) -> Option<(usize, usize)> {
         let mut cur = o.clone();

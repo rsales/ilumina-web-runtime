@@ -26,6 +26,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Port M2 slice 3 (started): score sprite intervals with behaviors
+  (`rifx`), behavior instances, `beginSprite`, frame events, `sendSprite`,
+  sprite properties and the startup order (`player::stage`); `value()`
+  evaluates setting expressions.
+
+### Fixed
+- Port: member numbers now start at the cast's first member (`MCsL`, read
+  big-endian). Sprites on GlobalAssets were one member off, also in the M1
+  renderer.
+
+### Added (cont.)
 - Port player: `the actorList`, offline NetLingo (requests fail with 4146 as
   on Wine), the BinaryIO Xtra over byte patches in the virtual file system,
   `rgb()` colors and settable field/text `member.text`. With the owner's
