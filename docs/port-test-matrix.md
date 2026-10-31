@@ -56,9 +56,16 @@ Slices, each with its own check:
    - Home's `startMovie` (HOCode) now runs to the end, including `Lite`
      and `dCheck` (the program's own demo/registration code, untouched).
    - `prepareMovie` runs PathMgr, Framework, SoundMgr, Nav, PaletteMgr,
-     SpriteMgr, HelpMgr, IMLMgr and the database-update scan, and stops at
-     `VDatabase.OpenDatabase` (AppTables.vdb): the V4MD layer is next. The
-     shared `startMovie` then fails only because that object is missing.
+     SpriteMgr, HelpMgr, IMLMgr, the database-update scan, opens
+     `AppTables.vdb` through V4MD, passes the resolution check, and stops at
+     the **first-run registration dialog** (`DoRegistrationDialogEx`, Mui
+     Xtra) — the same dialog a fresh Wine profile shows. The shared
+     `startMovie` then fails only because objects created later in `init`
+     (`goMenuMgr`) do not exist yet.
+   - The disc test is a ratchet: it asserts where each event stops and fails
+     if the run regresses or gets further without the table being updated.
+   - The host reports a 1024×768 desktop like the Wine reference
+     (`ILUMINA_RES`); at 1280×1024 the program offered to change the display.
    - On a fresh profile the program shows "Unable to read registration"
      (no `C:\WINDOWS\irkvbp.txt` yet), as a new Windows install would.
    - ⏳ Unverified: integer `x mod 0` (reached by the original code on a fresh
@@ -266,6 +273,27 @@ Slices, each with its own check:
   - queries: `ExecuteSql`, `GetCursor`, `GoFirst`, `GoNext`, `GetField`;
   - results: `GetRecordSetAsPropList` (61 calls), `GetRecordAsPropList`.
   - That is a cursor and SQL surface, not a raw table API.
+
+### Valentina ✅ schema, records and SQL subset (2026-10-31)
+
+- `valentina::schema` reads table and field names from the `.vdb` (itself a
+  Valentina file: system table `0x7ffffffe` holds property rows — object
+  kind/property id, text value, owner row). Tables: 34 name, 36 id; fields:
+  42 name, 44 type, 56 max length; fields are numbered from 2 in the `.dat`.
+  Checked: 15 databases, 49 tables, 266 fields, each with its `.dat`
+  segment (the `.dat` catalog carries the table id at offset 16).
+- Types by measured width: 3 byte, 4 signed short, 5 unsigned short, 7 long,
+  9 float (no data on the discs; assumed 4 bytes), 10 String (`max+1`
+  bytes, NUL-terminated), 17 Text (pointer into the `.blb`), 26 VarChar
+  (slot heap).
+- `valentina::db` reads every column of every table: 1,166,375 cells and
+  317,535 non-empty texts across the 15 databases.
+- `valentina::sql`: the SELECT subset the scripts build (DISTINCT, `*`,
+  MIN/MAX/COUNT/SUM/AVG, WHERE with comparisons, LIKE, AND/OR/NOT,
+  parentheses, Valentina's `no_case`, two-table joins, GROUP BY, ORDER BY).
+- `player::v4md`: `VDatabase`, `VCursor` and the `Valentina*` functions;
+  records come back as property lists keyed by field-name symbols. Writes
+  (`SqlExecute`) are recorded, not applied yet.
 
 ### Valentina ✅ readable (2026-10-30)
 

@@ -4,6 +4,7 @@
 //! No I/O: the disc files come through [`vfs::DiscFiles`].
 
 pub mod host;
+pub mod v4md;
 pub mod vfs;
 
 pub use host::{MemberInfo, PlayerHost};

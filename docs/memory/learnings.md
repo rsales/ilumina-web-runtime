@@ -123,3 +123,16 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   layer (field names from `.vdb`, an SQL subset) is needed for Home, not only
   for the Bible module.
 
+- **The `.vdb` schema is a property table** (2026-10-31): one row per
+  property (kind/property id, text, owner row); objects are rows whose value
+  is "0" with kind 1/2/3 (database/table/field). See `valentina::schema`.
+- **Valentina SQL has `no_case`** after a comparison (`WORD='x' no_case`).
+- **Object-first dispatch on `localcall`:** `Db.Base` calls
+  `GetRecordAsPropList(hRs)` from inside its own handler of the same name;
+  the compiler emitted `localcall`, but Director sends it to the cursor.
+- **Report a 1024×768 desktop.** At 1280×1024 the program opens a "reduce
+  resolution" Mui dialog during `init`; the Wine reference runs at 1024×768.
+- **The test ratchet caught real progress twice** in one session (AppTables
+  opened, then the resolution check passed): keep each disc test asserting
+  the exact stop point.
+

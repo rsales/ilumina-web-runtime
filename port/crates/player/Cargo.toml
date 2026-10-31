@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 rifx = { path = "../rifx" }
 lingo-vm = { path = "../lingo-vm" }
+valentina = { path = "../valentina" }
 
 [dev-dependencies]
 discs = { path = "../discs" }

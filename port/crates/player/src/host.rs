@@ -48,9 +48,14 @@ pub struct PlayerHost {
     pub today: (i64, i64, i64),
     /// Stage size (from the movie's `DRCF`).
     pub stage: (i64, i64),
+    /// Desktop size reported to the program. 1024×768 like the Wine
+    /// reference (`ILUMINA_RES` in `runtime/lib.sh`): the size the program
+    /// was made for, so it does not offer to change the display.
+    pub screen: (i64, i64),
     settings: HashMap<String, Value>,
     files: HashMap<i64, FileIo>,
     next_id: i64,
+    pub v4md: crate::v4md::V4md,
 }
 
 fn arg(args: &[Value], i: usize) -> Value {
@@ -136,9 +141,11 @@ impl PlayerHost {
             clock_ms: 0,
             today: (2026, 1, 1),
             stage: (1024, 768),
+            screen: (1024, 768),
             settings: HashMap::new(),
             files: HashMap::new(),
             next_id: 1,
+            v4md: Default::default(),
         }
     }
 
@@ -193,11 +200,14 @@ impl PlayerHost {
         *self.missing.entry(what).or_default() += 1;
     }
 
-    fn new_object(&mut self, kind: &str) -> Value {
+    fn new_object(&mut self, kind: &str, args: &[Value]) -> Value {
         let id = self.next_id;
         self.next_id += 1;
         if kind.eq_ignore_ascii_case("fileio") {
             self.files.insert(id, FileIo::default());
+        }
+        if kind.eq_ignore_ascii_case("vcursor") {
+            self.v4md.new_cursor(id, args);
         }
         Value::Host(HostRef::Object {
             kind: kind.to_string(),
@@ -357,7 +367,10 @@ impl lingo_vm::Host for PlayerHost {
         let v = match name.to_ascii_lowercase().as_str() {
             "xtra" => Value::Host(HostRef::Xtra(a0.to_text())),
             "new" => match &a0 {
-                Value::Host(HostRef::Xtra(x)) => self.new_object(x),
+                Value::Host(HostRef::Xtra(x)) => {
+                    let x = x.clone();
+                    self.new_object(&x, &args[1..])
+                }
                 _ => return Ok(None),
             },
             "member" => self.member_value(&a0, args.get(1)),
@@ -526,13 +539,12 @@ impl lingo_vm::Host for PlayerHost {
                 Value::Int(0)
             }
             "bascreeninfo" => match a0.to_text().to_ascii_lowercase().as_str() {
-                "width" => Value::Int(1280),
-                "height" => Value::Int(1024),
+                "width" => Value::Int(self.screen.0),
+                "height" => Value::Int(self.screen.1),
                 "depth" => Value::Int(32),
                 _ => Value::Int(0),
             },
-            // --- Valentina (V4MD): the database layer comes with M3 ---
-            "valentinainit" | "valentinadebuglevel" => Value::Void,
+            _ if self.v4md.call(name).is_some() => self.v4md.call(name).unwrap(),
             _ => {
                 self.note(format!("call {name}"));
                 return Ok(None);
@@ -554,11 +566,22 @@ impl lingo_vm::Host for PlayerHost {
                     return Ok(Some(v));
                 }
             }
+            if kind.eq_ignore_ascii_case("vdatabase") {
+                let me = Value::Host(target.clone());
+                if let Some(v) = self.v4md.database_method(&self.vfs, *id, &me, name, args) {
+                    return Ok(Some(v));
+                }
+            }
+            if kind.eq_ignore_ascii_case("vcursor") {
+                if let Some(v) = self.v4md.cursor_method(*id, name, args) {
+                    return Ok(Some(v));
+                }
+            }
         }
         if let HostRef::Xtra(x) = target {
             if name.eq_ignore_ascii_case("new") {
                 let x = x.clone();
-                return Ok(Some(self.new_object(&x)));
+                return Ok(Some(self.new_object(&x, args)));
             }
         }
         self.note(format!(
@@ -722,9 +745,12 @@ impl PlayerHost {
             "ticks" => Value::Int(self.clock_ms * 60 / 1000),
             "timer" => Value::Int(self.clock_ms * 60 / 1000),
             "colordepth" => Value::Int(32),
-            "desktoprectlist" | "deskTopRectList" => {
-                Value::list(vec![Value::Rect(0.0, 0.0, 1280.0, 1024.0)])
-            }
+            "desktoprectlist" | "deskTopRectList" => Value::list(vec![Value::Rect(
+                0.0,
+                0.0,
+                self.screen.0 as f64,
+                self.screen.1 as f64,
+            )]),
             "quicktimepresent" => Value::Int(1),
             "soundenabled" => Value::Int(1),
             "soundlevel" => Value::Int(7),

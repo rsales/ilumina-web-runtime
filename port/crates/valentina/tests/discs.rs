@@ -103,3 +103,133 @@ fn multi_table_database_splits_into_tables() {
     assert!(tables.len() >= 3, "got {} tables", tables.len());
     assert_eq!(tables[0].record_count().unwrap(), 1774);
 }
+
+/// Every field the `.vdb` schemas declare has its segment in the `.dat`
+/// catalog (by table id and field number). Prints the measured width per
+/// field type, never values.
+#[test]
+fn schemas_match_the_data_files() {
+    let Some(dir) = databases() else {
+        return;
+    };
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.to_ascii_lowercase().ends_with(".vdb") && !n.starts_with("._"))
+        .collect();
+    names.sort();
+    let mut widths: std::collections::BTreeMap<u16, std::collections::BTreeSet<String>> =
+        Default::default();
+    let (mut n_tables, mut n_fields) = (0, 0);
+    for vdb_name in &names {
+        let stem = &vdb_name[..vdb_name.len() - 4];
+        let dat_name = [".dat", ".DAT"]
+            .iter()
+            .map(|e| format!("{stem}{e}"))
+            .find(|n| dir.join(n).exists())
+            .unwrap();
+        let vdb = std::fs::read(dir.join(vdb_name)).unwrap();
+        let dat = std::fs::read(dir.join(&dat_name)).unwrap();
+        let schema = valentina::schema::schema(&vdb).unwrap_or_else(|e| panic!("{vdb_name}: {e}"));
+        let file = DataFile::parse(&dat).unwrap();
+        for t in &schema {
+            n_tables += 1;
+            let view = file.table(t.id).unwrap_or_else(|| {
+                panic!("{vdb_name}: table {} ({}) not in {dat_name}", t.id, t.name)
+            });
+            // Empty tables have zero-size segments: nothing to measure.
+            let n = view.record_count().unwrap();
+            if n == 0 {
+                n_fields += t.fields.len();
+                continue;
+            }
+            for f in &t.fields {
+                n_fields += 1;
+                let kinds: Vec<u16> = view
+                    .segments
+                    .iter()
+                    .filter(|s| s.field == f.number)
+                    .map(|s| s.kind)
+                    .collect();
+                assert!(
+                    !kinds.is_empty(),
+                    "{vdb_name}: {}.{} (field {}) has no segment",
+                    t.name,
+                    f.name,
+                    f.number
+                );
+                let desc = match view.data_segment(f.number) {
+                    Some(s) if kinds == [3] => format!("{}B", s.size / n),
+                    _ => format!("kinds {kinds:?}"),
+                };
+                widths.entry(f.kind).or_default().insert(desc);
+            }
+        }
+    }
+    eprintln!(
+        "{} databases, {n_tables} tables, {n_fields} fields",
+        names.len()
+    );
+    for (k, w) in &widths {
+        eprintln!("  type {k}: {w:?}");
+    }
+    assert_eq!(names.len(), 15);
+}
+
+/// Open every database through its schema and read every column of every
+/// table (fixed, String, VarChar and `.blb` Text). Prints counts only.
+#[test]
+fn every_column_of_every_database_reads() {
+    let Some(dir) = databases() else {
+        return;
+    };
+    let find = |stem: &str, exts: &[&str]| {
+        exts.iter()
+            .map(|e| dir.join(format!("{stem}{e}")))
+            .find(|p| p.exists())
+    };
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.to_ascii_lowercase().ends_with(".vdb") && !n.starts_with("._"))
+        .collect();
+    names.sort();
+    let (mut cells, mut texts) = (0usize, 0usize);
+    for vdb_name in &names {
+        let stem = &vdb_name[..vdb_name.len() - 4];
+        let vdb = std::fs::read(dir.join(vdb_name)).unwrap();
+        let dat = std::fs::read(find(stem, &[".dat", ".DAT"]).unwrap()).unwrap();
+        let blb = find(stem, &[".blb", ".BLB"]).map(|p| std::fs::read(p).unwrap());
+        let db = valentina::db::Database::open(&vdb, dat, blb)
+            .unwrap_or_else(|e| panic!("{vdb_name}: {e}"));
+        for t in &db.tables {
+            for f in &t.fields {
+                let col = db
+                    .column(t, f)
+                    .unwrap_or_else(|e| panic!("{vdb_name}: {}.{}: {e}", t.name, f.name));
+                cells += col.len();
+                texts += col
+                    .iter()
+                    .filter(|c| matches!(c, valentina::db::Cell::Text(s) if !s.is_empty()))
+                    .count();
+            }
+        }
+    }
+    eprintln!(
+        "{} databases: {cells} cells read, {texts} non-empty texts",
+        names.len()
+    );
+
+    // A real query: the Home "MAIS:" list comes from AppTables.Addons.
+    let vdb = std::fs::read(dir.join("AppTables.vdb")).unwrap();
+    let dat = std::fs::read(dir.join("AppTables.dat")).unwrap();
+    let blb = std::fs::read(dir.join("AppTables.blb")).ok();
+    let db = valentina::db::Database::open(&vdb, dat, blb).unwrap();
+    let rs = valentina::sql::query(&db, "select Edition, Name from Addons order by Name").unwrap();
+    assert_eq!(rs.columns, ["Edition", "Name"]);
+    assert!(!rs.rows.is_empty());
+    let rs = valentina::sql::query(&db, "select count(*) from StringTable").unwrap();
+    eprintln!("Addons query ok; StringTable rows: {:?}", rs.rows[0][0]);
+}

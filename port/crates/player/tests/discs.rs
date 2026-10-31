@@ -25,16 +25,59 @@ fn load(movie: &str) -> Option<(Vm, PlayerHost)> {
     Some(player::load_movie(vfs, movie, &casts).unwrap())
 }
 
+/// Lingo recursion is native recursion in the VM: give the test thread a
+/// big stack (the default 2 MB is too small for debug builds).
+fn big_stack(f: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(f)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Where each movie event stops today. A ratchet: the test fails if the run
+/// regresses *or* gets further, so this table (and the test matrix) must be
+/// updated with every step. `None` means the event must complete.
+// Regression: the test used to pass while both events printed "stopped".
+const EXPECTED: &[(&str, Option<&str>)] = &[
+    // The first-run registration dialog (Mui Xtra), as on a fresh Wine
+    // profile: Main.init → ValidateRegistration → GetRegistrationData →
+    // DoRegistrationDialogEx. Needs the Mui dialogs and a user to answer.
+    ("prepareMovie", Some("GetWindowPropList")),
+    // Consequence: goMenuMgr is created later in init.
+    (
+        "startMovie",
+        Some("LocalizeModuleNameForHistory not found for void"),
+    ),
+];
+
 #[test]
 fn home_movie_events() {
+    big_stack(home_movie_events_inner);
+}
+
+fn home_movie_events_inner() {
     let Some((mut vm, mut host)) = load("Home.dxr") else {
         return;
     };
     eprintln!("cast libs: {:?}", host.cast_libs);
-    for event in ["prepareMovie", "startMovie"] {
-        match vm.movie_event(&mut host, event, vec![]) {
+    for &(event, expected) in EXPECTED {
+        let r = vm.movie_event(&mut host, event, vec![]);
+        match &r {
             Ok(n) => eprintln!("{event}: OK ({n} handler(s))"),
             Err(e) => eprintln!("{event}: stopped: {e}"),
+        }
+        match (expected, r) {
+            (None, Ok(_)) => {}
+            (None, Err(e)) => panic!("{event} must complete, stopped: {e}"),
+            (Some(stop), Err(e)) => assert!(
+                e.message.contains(stop),
+                "{event} stopped elsewhere (update EXPECTED): {e}"
+            ),
+            (Some(stop), Ok(_)) => {
+                panic!("{event} now completes (was stopping at {stop:?}): update EXPECTED")
+            }
         }
     }
     eprintln!("alerts: {}", host.alerts.len());

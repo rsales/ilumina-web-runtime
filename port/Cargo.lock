@@ -206,6 +206,7 @@ dependencies = [
  "discs",
  "lingo-vm",
  "rifx",
+ "valentina",
 ]
 
 [[package]]

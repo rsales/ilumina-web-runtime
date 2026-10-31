@@ -669,6 +669,48 @@ mod tests {
         assert_eq!(vm.output.len(), 2);
     }
 
+    // Regression: `GetRecordAsPropList(hRs)` inside a handler of the same name
+    // compiles to `localcall`; with a V4MD cursor as first argument it must
+    // reach the cursor's method, not recurse into the local handler.
+    #[test]
+    fn localcall_on_a_host_object_prefers_its_method() {
+        struct Cursors;
+        impl Host for Cursors {
+            fn method(
+                &mut self,
+                _: &mut Vm,
+                _: &HostRef,
+                name: &str,
+                _: &[Value],
+            ) -> HostResult<Option<Value>> {
+                Ok((name == "GetRecord").then(|| Value::str("from host")))
+            }
+        }
+        let p = program(
+            ScriptKind::Movie,
+            &["GetRecord", "x"],
+            &[],
+            vec![],
+            vec![H {
+                name: "GetRecord",
+                args: &["x"],
+                locals: 0,
+                code: vec![(GETPARAM, 0), (ARGLIST, 1), (LOCALCALL, 0), (RET, 0)],
+            }],
+        );
+        let mut vm = Vm::new(p);
+        let obj = Value::Host(HostRef::Object {
+            kind: "VCursor".into(),
+            id: 1,
+        });
+        assert_eq!(
+            vm.call(&mut Cursors, "GetRecord", vec![obj])
+                .unwrap()
+                .to_text(),
+            "from host"
+        );
+    }
+
     #[test]
     fn wide_ints_floats_and_jmp() {
         let code = vec![

@@ -13,7 +13,7 @@
 //! * **Page chain.** Page id 1 is a `u32` table indexed by page number `p`
 //!   (0-based): the id of the next page of the same segment, or -1 at the end.
 //! * **Segments.** The catalog (page id 2) lists segments as 24-byte records:
-//!   `id, page_count, byte_size, 0, flags, kind:u16, field:u16`. A segment's
+//!   `id, page_count, byte_size, 0, table id, kind:u16, field:u16`. A segment's
 //!   id is also the id of its first page; its byte stream is the
 //!   concatenation of its pages along the chain.
 //!     * `field 0, kind 3`: record bitmap: `u32 count, u32 count`, then one bit per record.
@@ -30,6 +30,10 @@
 //! Record order is the insertion order, not canonical book order.
 
 use std::collections::HashMap;
+
+pub mod db;
+pub mod schema;
+pub mod sql;
 
 #[derive(Debug)]
 pub enum Error {
@@ -73,6 +77,9 @@ pub struct Segment {
     pub id: u32,
     pub pages: u32,
     pub size: u32,
+    /// Table id (matches the table's id in the `.vdb` schema; system tables
+    /// in a `.vdb` use 0x7fffffff and 0x7ffffffe).
+    pub table: u32,
     pub kind: u16,
     pub field: u16,
 }
@@ -117,6 +124,7 @@ impl<'a> DataFile<'a> {
                 id,
                 pages: u32_at(data, at + 4)?,
                 size: u32_at(data, at + 8)?,
+                table: u32_at(data, at + 16)?,
                 kind: u16_at(data, at + 20)?,
                 field: u16_at(data, at + 22)?,
             });
@@ -166,6 +174,22 @@ impl<'a> DataFile<'a> {
         )))
     }
 
+    /// The view of one table by id (segments whose `table` matches).
+    pub fn table(&self, id: u32) -> Option<DataFile<'a>> {
+        let segments: Vec<Segment> = self
+            .segments
+            .iter()
+            .filter(|s| s.table == id)
+            .cloned()
+            .collect();
+        if segments.is_empty() {
+            return None;
+        }
+        let mut t = self.clone();
+        t.segments = segments;
+        Some(t)
+    }
+
     /// One view per table. A table starts at each record-bitmap segment
     /// (`kind 3, field 0`); the catalog segment (`kind 1`) belongs to none.
     pub fn tables(&self) -> Vec<DataFile<'a>> {
@@ -204,6 +228,12 @@ impl<'a> DataFile<'a> {
         Ok(BlobStore { store, seg_size })
     }
 
+    /// A field's data segment: kind 3 in `.dat` files, 13 in `.vdb` system
+    /// tables.
+    pub fn data_segment(&self, field: u16) -> Option<&Segment> {
+        self.segment(field, 3).or_else(|| self.segment(field, 13))
+    }
+
     pub fn segment(&self, field: u16, kind: u16) -> Option<&Segment> {
         self.segments
             .iter()
@@ -213,7 +243,7 @@ impl<'a> DataFile<'a> {
     /// Number of records, from the record bitmap (field 0).
     pub fn record_count(&self) -> Result<u32, Error> {
         let seg = self
-            .segment(0, 3)
+            .data_segment(0)
             .ok_or(Error::Format("no record bitmap".into()))?;
         u32_at(&self.stream(seg)?, 0)
     }
@@ -222,7 +252,7 @@ impl<'a> DataFile<'a> {
     pub fn fixed_field(&self, field: u16) -> Result<Vec<u32>, Error> {
         let n = self.record_count()? as usize;
         let seg = self
-            .segment(field, 3)
+            .data_segment(field)
             .ok_or(Error::Format(format!("no field {field}")))?;
         let bytes = self.stream(seg)?;
         let width = bytes.len() / n.max(1);
@@ -246,11 +276,22 @@ impl<'a> DataFile<'a> {
 
     /// A text field (slot heap + index), keyed by 1-based record id.
     pub fn text_field(&self, field: u16) -> Result<HashMap<u32, &'a [u8]>, Error> {
+        self.text_field_kinds(field, 3, 12)
+    }
+
+    /// A slot-heap field whose heap and index segments use other kind codes
+    /// (the `.vdb` system tables use 13 and 14).
+    pub fn text_field_kinds(
+        &self,
+        field: u16,
+        heap_kind: u16,
+        index_kind: u16,
+    ) -> Result<HashMap<u32, &'a [u8]>, Error> {
         let heap = self
-            .segment(field, 3)
+            .segment(field, heap_kind)
             .ok_or(Error::Format(format!("no heap for field {field}")))?;
         let index = self
-            .segment(field, 12)
+            .segment(field, index_kind)
             .ok_or(Error::Format(format!("no index for field {field}")))?;
         let heap_bytes = self.stream(heap)?;
         let index_bytes = self.stream(index)?;

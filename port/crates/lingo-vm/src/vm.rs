@@ -751,9 +751,26 @@ impl Vm {
                 }
                 0x56 => {
                     let (args, noret) = f.pop_args()?;
-                    let r = self
-                        .run(host, f.script, arg as usize, f.receiver.clone(), args)
-                        .map_err(Exit::Error)?;
+                    // A local call whose first argument is a host object that
+                    // answers the method goes to the object: `Db.Base` calls
+                    // `GetRecordAsPropList(hRs)` on a V4MD cursor from inside
+                    // its own handler of the same name.
+                    let via_host = match args.first() {
+                        Some(Value::Host(r)) => {
+                            let r = r.clone();
+                            let hname = self.program.scripts[f.script].handlers[arg as usize]
+                                .name
+                                .clone();
+                            host.method(self, &r, &hname, &args[1..])?
+                        }
+                        _ => None,
+                    };
+                    let r = match via_host {
+                        Some(v) => v,
+                        None => self
+                            .run(host, f.script, arg as usize, f.receiver.clone(), args)
+                            .map_err(Exit::Error)?,
+                    };
                     if !noret {
                         f.stack.push(r);
                     }

@@ -26,6 +26,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `director::text` lays out and draws it through a host `Fonts` trait;
   `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
   adds folders) and `xtask texts` dumps text members to `work/texts/`.
+- Valentina: `.vdb` schema reader (table/field names and types), typed
+  column access for all 15 databases, and the SQL SELECT subset the scripts
+  use; `player::v4md` exposes them as the V4MD Xtra (VDatabase, VCursor).
 - Port M2 slice 2 (in progress): `crates/player`, the host for the Lingo VM
   (virtual Windows file system like the original full install, movie and
   player properties, BuddyAPI, FileIO, prefs, dates). Home's `startMovie`
