@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-10-30. Overwrite this file at the end of each session._
+_Last updated: 2026-10-31. Overwrite this file at the end of each session._
 
 ## State
 
@@ -35,13 +35,15 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
-**M1 in progress:** hash gate ✅, bitmaps ✅, score ✅, native compositor ⚠️.
-`xtask render <discs> Home.dxr 1` writes a PNG. MediaCenter frame 1 matches
-Boxedwine's layout by eye. Owner's Boxedwine screenshots of Home and Multimídia are in `work/reference/`.
-The gaps are mostly Lingo runtime state (icon swaps, linked JPEGs, text),
-so parity needs M2. Next: XMED/STXT text and the WASM canvas, then the
-Lingo VM. 8-bit palette
-indices are still to be confirmed.
+**M1 in progress:** hash gate ✅, bitmaps ✅, score ✅, text ✅, native
+compositor ⚠️. `xtask render <discs> Home.dxr 1` writes a PNG (now with text,
+fonts from the host). All 88 XMED and 92 STXT parse; encoding is per document
+(Mac Roman vs Windows-1252, flag in XMED section 1). Home frame 1 has no
+static text: its text members are empty and Lingo fills them, like the icon
+swaps and linked JPEGs. Owner's Boxedwine screenshots of Home and Multimídia
+are in `work/reference/`; pixel parity needs M2. Next: the WASM canvas
+(`port/crates/web`, built on the Mac), then the Lingo VM starting with the
+Home scripts. 8-bit palette indices are still to be confirmed.
 
 ## Next steps (in priority order)
 

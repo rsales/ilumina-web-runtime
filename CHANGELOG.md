@@ -21,6 +21,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
   decoding (all 1,288 `BITD`, palette from the user's projector), D6+ score
   and cast list, and a native compositor (`crates/director`, `xtask render`)
   that draws bitmaps and shapes for a score frame.
+- Port M1 text: `rifx::text` parses styled text (`XMED`, Paige) and fields
+  (`STXT` + `Fmap`), with per-document Mac Roman / Windows-1252 decoding;
+  `director::text` lays out and draws it through a host `Fonts` trait;
+  `xtask render` rasterises with fontdue over installed fonts (`ILUMINA_FONTS`
+  adds folders) and `xtask texts` dumps text members to `work/texts/`.
 - `docs/history.md`: product history, 2005 system requirements and the
   publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision

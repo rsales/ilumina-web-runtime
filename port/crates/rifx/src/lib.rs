@@ -17,6 +17,7 @@ pub mod container;
 pub mod lingo;
 pub mod reader;
 pub mod score;
+pub mod text;
 
 pub use container::{Chunk, Movie};
 pub use reader::{Endian, FourCC};

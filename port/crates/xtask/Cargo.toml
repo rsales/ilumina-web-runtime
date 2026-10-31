@@ -13,3 +13,4 @@ qtvr = { path = "../qtvr" }
 discs = { path = "../discs" }
 director = { path = "../director" }
 png = "0.17"
+fontdue = "0.9"

@@ -8,6 +8,8 @@
 //!
 //! `<discs-dir>` holds cd1..cd4 (the same layout as the Wine runtime).
 
+mod fonts;
+
 use rifx::bytecode::disassemble;
 use rifx::cast::{members, MemberType};
 use rifx::lingo::{contexts, Literal};
@@ -95,6 +97,16 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("texts") if args.len() >= 2 => {
+            let out = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("work/texts"));
+            if let Err(e) = texts_dump(Path::new(&args[1]), &out) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some("bitmaps") if args.len() >= 2 => {
             let out = args
                 .get(2)
@@ -113,6 +125,9 @@ fn main() {
                 "       xtask bitmaps <discs-dir> [out-dir]      # every bitmap as PNG, local only"
             );
             eprintln!("       xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "       xtask texts <discs-dir> [out-dir]        # text and field members, local only"
+            );
             eprintln!(
                 "       xtask qtvr <tour.mov> [out-dir]         # node graph as JSON, local only"
             );
@@ -636,7 +651,8 @@ fn render(
         manifest,
     };
     let stage = director::Stage::load(&files, movie, palette)?;
-    let (px, report) = stage.render(frame)?;
+    let fonts = fonts::HostFonts::new();
+    let (px, report) = stage.render(frame, &fonts)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -657,5 +673,76 @@ fn render(
     for (n, why) in &report.skipped {
         println!("  sprite {n}: {why}");
     }
+    let mut used: Vec<_> = fonts.used.borrow().clone().into_iter().collect();
+    used.sort();
+    for (family, file) in used {
+        println!("  font {family} -> {file}");
+    }
+    Ok(())
+}
+
+/// Every text (`XMED`) and field (`STXT`) member as a `.txt` per cast file,
+/// with its runs (font, size, style, colour). Local only: this is content.
+fn texts_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    use rifx::text::{parse_fmap, parse_stxt, parse_xmed};
+    use rifx::FourCC;
+    let dir = discs.join("cd1/Program/Files");
+    std::fs::create_dir_all(out)?;
+    let mut names: Vec<_> = std::fs::read_dir(&dir)?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| {
+            let l = n.to_ascii_lowercase();
+            !n.starts_with("._") && (l.ends_with(".cxt") || l.ends_with(".dxr"))
+        })
+        .collect();
+    names.sort();
+    let mut total = 0;
+    for name in names {
+        let data = std::fs::read(dir.join(&name))?;
+        let movie = Movie::parse(&data)?;
+        let fmap = match movie.first(FourCC::new(b"Fmap")) {
+            Some(c) => parse_fmap(movie.chunk_data(c.id)?)?,
+            None => Default::default(),
+        };
+        let mut txt = String::new();
+        for m in members(&movie)?.iter().flatten() {
+            let t = if let Some(s) = movie.children(m.section, FourCC::new(b"XMED")).next() {
+                let d = movie.chunk_data(s)?;
+                if !d.starts_with(b"FFFF") {
+                    continue;
+                }
+                parse_xmed(d)?
+            } else if let Some(s) = movie.children(m.section, FourCC::new(b"STXT")).next() {
+                parse_stxt(movie.chunk_data(s)?, &|id| fmap.get(&id).cloned())?
+            } else {
+                continue;
+            };
+            total += 1;
+            let _ = writeln!(txt, "## #{} {:?} {:?}", m.number, m.kind, m.name);
+            for r in &t.runs {
+                let st = &r.style;
+                let _ = writeln!(
+                    txt,
+                    "   [{}..{}] {} {}{}{}{} #{:02x}{:02x}{:02x}",
+                    r.start,
+                    r.end,
+                    st.font,
+                    st.size,
+                    if st.bold { " b" } else { "" },
+                    if st.italic { " i" } else { "" },
+                    if st.underline { " u" } else { "" },
+                    st.color[0],
+                    st.color[1],
+                    st.color[2]
+                );
+            }
+            let _ = writeln!(txt, "{}\n", t.text.replace('\r', "\n"));
+        }
+        if !txt.is_empty() {
+            std::fs::write(out.join(format!("{name}.txt")), txt)?;
+        }
+    }
+    println!("{total} text members -> {}", out.display());
     Ok(())
 }

@@ -8,7 +8,7 @@ stay in `work/`, never in git.
 | Milestone | Gate | Status |
 |---|---|---|
 | M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
-| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score); text, browser canvas and SSIM pending |
+| M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⚠️ native render works (bitmaps, shapes, score, text); browser canvas pending; SSIM moved to M2 |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
 | M4 multimedia | Animations and tours play; QTVR node switches and hotspots work | ⏳ |
@@ -48,6 +48,42 @@ stay in `work/`, never in git.
   (Internal, LocalCode, LocalAssets, GlobalCode, GlobalAssets).
 - `xtask score <movie.dxr> [frame]` lists the sprites.
 
+### Text ✅ parsed, ⚠️ host fonts (2026-10-31)
+
+- `rifx::text` parses **all 88 styled texts** (`XMED`, the `text` Xtra
+  member, Paige document version 0x40001) and **all 92 fields** (`STXT`).
+  Two more `XMED` chunks are Flash Asset members (SWF data) and are skipped.
+  Checked by `cargo test -p rifx --test texts`.
+  - Runs carry font, size, bold/italic/underline and colour. The style table
+    has one leading value, then fixed 77-value records (count in the section
+    header). Paragraph records are 54 values; the first is the justification
+    (80 left, 8 right, 3 centred).
+  - Field font ids (0x8001…) resolve through each file's `Fmap`: every id
+    used by an `STXT` run is found.
+  - **Encoding is per document.** The text-block flags (section 1) end in
+    0x81 for Mac OS Roman (6 documents, where `0x92` is "í") and 0x84 for
+    Windows-1252. Fields are Windows-1252.
+  - Fonts used: Verdana (most), Georgia, Times New Roman, Geneva, Arial,
+    Helvetica, MS Sans Serif, Courier (New), Charcoal; 8–26 pt.
+- `director::text`: a `Fonts` trait (the host rasterises), layout with word
+  wrap and `\r` breaks, alignment, underline, field border + margin and
+  alignment from the member. Point size = pixels (72 dpi stage).
+  - Text members are not clipped to the score height (they grow to fit);
+    fields clip unless their box type is "adjust to fit".
+- `xtask` rasterises with fontdue over host fonts: the real faces when
+  installed (macOS has Verdana, Georgia, Times New Roman, Arial, Courier New,
+  Geneva and Microsoft Sans Serif), then Liberation/DejaVu. `ILUMINA_FONTS`
+  adds folders. The render prints which file each family used.
+- `xtask texts <discs>` dumps every text member with its runs to
+  `work/texts/` (local only).
+- **Home frame 1 has no static text:** its text members (`txt_Editions`,
+  `AddOns`, `txt_Clickable`) are empty in the cast and Lingo fills them. The
+  pipeline was checked on frames that do hold text (Bible 30, MediaCenter 99):
+  wrapping, accents, styles and right alignment look right by eye.
+- ⚠️ In the sandbox Verdana falls back to DejaVu Sans (wider), so line breaks
+  differ from Windows. On the Mac the real faces are used. Director's
+  anti-aliasing threshold and kerning are not modelled.
+
 ### Compositing ⚠️ native only
 
 - `port/crates/director`: `Stage::load` (through a `Files` provider; natively
@@ -55,14 +91,14 @@ stay in `work/`, never in git.
   - Bitmaps are placed at loc − reg point and scaled to the sprite rect.
   - Inks: copy; white as transparent for inks 1, 8 and 36; 32-bit alpha; blend.
   - Shapes: rectangle, oval and line, in the sprite's RGB or palette colour.
+  - Text and fields (see Text above).
 - `xtask render <discs> Home.dxr 1` → `work/render/Home-1.png`.
-  - Home frame 1: 27 sprites drawn, 22 skipped.
+  - Home frame 1: 33 sprites drawn, 16 skipped (linked/empty bitmaps, two
+    sprites pointing at members that don't exist, Xtra members without text).
   - **MediaCenter frame 1, compared by eye with a Boxedwine screenshot:**
     the layout, the purple bars, the circles, the photos and the connecting
     lines match.
 - **Missing:**
-  - text: the `text` Xtra members (XMED styled text) and fields (`STXT`),
-    for example the top menu and the editions text;
   - linked JPEGs, which Lingo loads at runtime;
   - some positions that Lingo changes at runtime (the "a" before "Bíblia");
   - the browser canvas (WASM);
@@ -76,12 +112,12 @@ stay in `work/`, never in git.
   - The Home photo, the module panel ("BÍBLIA …") and the menu-bar buttons
     are linked JPEGs or empty bitmaps that Lingo fills in.
   - The menus, captions and "MAIS: Estudo Pessoal" are `text` Xtra members
-    and fields, which aren't rendered yet.
+    and fields whose text Lingo sets (empty in the cast).
   - In Multimídia, the title's position and scale differ from frame 1. Lingo
     or another frame/label changes them.
   - **Consequence:** pixel parity with Wine needs the Lingo VM (M2), not just
     better static rendering. M1 now aims at "everything the score and casts
-    hold renders correctly" (bitmaps ✅, shapes ✅, text ⏳). Comparison with
+    hold renders correctly" (bitmaps ✅, shapes ✅, text ✅). Comparison with
     Wine moves to M2.
 
 ## M0 — spike (started 2026-10-30)

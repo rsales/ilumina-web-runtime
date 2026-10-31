@@ -65,3 +65,21 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   slot heap in the `.dat` (schema type 26). RA/RC/NTLH and the encyclopedia
   use Text/BLOB (type 17) in the `.blb`. A reader has to support both.
 
+- **The text Xtra's `XMED` is attached to `Xtra` members, not `Text`**
+  (2026-10-31). Member type 15 with an `XMED` child. Two Flash Asset members
+  also carry `XMED`, holding a SWF (`FWS` at byte 12): check for `FFFF`.
+- **XMED repeat counts are totals, and section bodies end in `0x03`**
+  (included in the header length). With "R n = n values" the style table is
+  exactly 1 + count × 77 values in all 88 documents; the count is the last
+  8 hex digits of the section header, not the first value.
+- **XMED encoding is per document.** The same Portuguese text can be Mac
+  Roman (`0x92` = í) or Windows-1252 (`0x92` = ’). The font table says 1252
+  in both. The text-block flags in section 1 decide: low byte 0x81 = Mac,
+  0x84 = Windows. Guessing from bytes fails because English text uses `0x92`
+  as an apostrophe.
+- **`Fmap` names start at `8 + map length`**, not 12: the third header word
+  belongs to the map. Each name is `u32 length` + bytes.
+- **Text members grow to fit** (2026-10-31). The score's sprite height for an
+  XMED member can be one line (12 px) while the text runs to several, so only
+  fields with a fixed/scrolling box are clipped.
+

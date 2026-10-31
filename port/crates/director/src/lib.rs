@@ -2,14 +2,18 @@
 //!
 //! Loads a movie and its external casts through a [`Files`] provider (disk
 //! natively, fetched bytes in the browser), resolves score sprites to cast
-//! members and composites one frame into an RGBA buffer. Lingo, text and
-//! shapes are later milestones; unsupported members are skipped and
-//! reported.
+//! members and composites one frame into an RGBA buffer: bitmaps, shapes and
+//! text (fonts come from the host through [`text::Fonts`]). Lingo is a later
+//! milestone; unsupported members are skipped and reported.
 
 use rifx::bitmap::{bitd_for, to_rgba, unpack, BitmapInfo, Palette};
 use rifx::cast::{members, Member, MemberType};
 use rifx::score::{cast_libs, CastLib, Score, Sprite};
-use rifx::Movie;
+use rifx::text::{parse_fmap, parse_stxt, parse_xmed, Align, StyledText};
+use rifx::{FourCC, Movie};
+
+pub mod text;
+pub use text::{Fonts, Glyph, LineMetrics};
 
 /// Byte provider for the movie folder (`cd1/Program/Files` layout).
 pub trait Files {
@@ -175,8 +179,40 @@ impl Stage {
         }))
     }
 
+    /// Styled text of a text (`XMED`, a text Xtra member) or field (`STXT`)
+    /// member. Field font ids are resolved through the cast's `Fmap`.
+    pub fn text(&self, lib: u16, member: u16) -> Result<Option<StyledText>, Error> {
+        let Some(cast) = self.cast(lib) else {
+            return Ok(None);
+        };
+        let Some(m) = cast.member(member) else {
+            return Ok(None);
+        };
+        let movie = Movie::parse(&cast.data)?;
+        if let Some(s) = movie.children(m.section, FourCC::new(b"XMED")).next() {
+            let d = movie.chunk_data(s)?;
+            // Flash Asset members also use XMED; their data is a SWF.
+            if d.starts_with(b"FFFF") {
+                return Ok(Some(parse_xmed(d)?));
+            }
+            return Ok(None);
+        }
+        if let Some(s) = movie.children(m.section, FourCC::new(b"STXT")).next() {
+            let fmap = match movie.first(FourCC::new(b"Fmap")) {
+                Some(c) => parse_fmap(movie.chunk_data(c.id)?)?,
+                None => Default::default(),
+            };
+            let mut t = parse_stxt(movie.chunk_data(s)?, &|id| fmap.get(&id).cloned())?;
+            if m.kind == MemberType::Field {
+                t.paragraphs = vec![(0, FieldBox::parse(&m.specific).align)];
+            }
+            return Ok(Some(t));
+        }
+        Ok(None)
+    }
+
     /// Composite score frame `frame` (1-based) into an RGBA buffer.
-    pub fn render(&self, frame: usize) -> Result<(Vec<u8>, FrameReport), Error> {
+    pub fn render(&self, frame: usize, fonts: &dyn Fonts) -> Result<(Vec<u8>, FrameReport), Error> {
         let (w, h) = (self.config.width as usize, self.config.height as usize);
         let mut canvas = Canvas::new(w, h, self.config.stage_color);
         let mut report = FrameReport::default();
@@ -202,6 +238,50 @@ impl Stage {
                 }
                 continue;
             }
+            if matches!(
+                kind,
+                Some(MemberType::Text | MemberType::Field | MemberType::Xtra)
+            ) {
+                match self.text(s.cast_lib, s.member)? {
+                    Some(t) => {
+                        let a = if s.blend > 0 && s.blend < 100 {
+                            255 * s.blend as u32 / 100
+                        } else {
+                            255
+                        };
+                        // Fields draw inside their border and margin and
+                        // clip unless their box adjusts to fit. Text members
+                        // grow to fit their text (the score height is only
+                        // the initial box), so they clip at the stage.
+                        let (inset, clip) = if kind == Some(MemberType::Field) {
+                            let m = self.cast(s.cast_lib).and_then(|c| c.member(s.member));
+                            let fb = FieldBox::parse(m.map(|m| &m.specific[..]).unwrap_or(&[]));
+                            (fb.border as i64 + fb.margin as i64, fb.box_type != 0)
+                        } else {
+                            (0, false)
+                        };
+                        let height = if clip {
+                            s.height as i64 - 2 * inset
+                        } else {
+                            h as i64
+                        };
+                        canvas.text(
+                            &t,
+                            s.left as i64 + inset,
+                            s.top as i64 + inset,
+                            s.width as i64 - 2 * inset,
+                            height,
+                            a,
+                            fonts,
+                        );
+                        report.drawn.push(s.number);
+                    }
+                    None => report
+                        .skipped
+                        .push((s.number, format!("{:?} without text", kind.unwrap()))),
+                }
+                continue;
+            }
             match self.bitmap(s.cast_lib, s.member)? {
                 Some(b) => {
                     canvas.draw(&b, &s);
@@ -220,6 +300,33 @@ impl Stage {
             }
         }
         Ok((canvas.px, report))
+    }
+}
+
+/// Field member box (big-endian): `u8 border, u8 margin, u8 box shadow,
+/// u8 box type (0 adjust to fit, 1 scrolling, 2 fixed, 3 limit to field
+/// size), i16 alignment (0 left, 1 centre, -1 right)`, …
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FieldBox {
+    pub border: u8,
+    pub margin: u8,
+    pub box_type: u8,
+    pub align: Align,
+}
+
+impl FieldBox {
+    pub fn parse(d: &[u8]) -> Self {
+        let b = |i: usize| d.get(i).copied().unwrap_or(0);
+        FieldBox {
+            border: b(0),
+            margin: b(1),
+            box_type: b(3),
+            align: match i16::from_be_bytes([b(4), b(5)]) {
+                1 => Align::Center,
+                -1 => Align::Right,
+                _ => Align::Left,
+            },
+        }
     }
 }
 
@@ -454,6 +561,13 @@ mod tests {
         assert_eq!(at(1, 1), vec![255, 0, 0]); // top-left = loc - reg
         assert_eq!(at(2, 1), vec![0, 0, 0]); // white skipped by ink 36
         assert_eq!(at(2, 2), vec![255, 0, 0]);
+    }
+
+    #[test]
+    fn field_box_alignment() {
+        let fb = FieldBox::parse(&[1, 3, 0, 0, 0xff, 0xff]);
+        assert_eq!((fb.border, fb.margin, fb.align), (1, 3, Align::Right));
+        assert_eq!(FieldBox::parse(&[]).align, Align::Left);
     }
 
     #[test]
