@@ -27,9 +27,10 @@ M0 status:
   fields, the KJV slot-heap text and the RA/encyclopedia BLOBs. Checked by its
   disc tests; `xtask valentina` dumps CSVs to `work/`. Next: field names from
   the `.vdb` and the SQL subset the Lingo uses.
-- **QTVR:** `NZV.mov` is cubic, with 28 nodes × 6 faces of 768² MPEG-4.
-  ffmpeg decodes the faces. The `smc` hotspot track and the node graph are pending.
-- **Still to do:** try dirplayer-rs on `Home.dxr`, decide on GPL, and add a manifest hash gate. (The wasm build of `rifx` and the
+- **QTVR ✅:** `port/crates/qtvr` reads the node graph, links, cube view
+  limits and the `smc` hotspot maps. All 24 tours parse; Nazaré is checked
+  end to end. `xtask qtvr` writes JSON to `work/`.
+- **Still to do (last M0 item):** try dirplayer-rs on `Home.dxr`, decide on GPL, and add a manifest hash gate. (The wasm build of `rifx` and the
   disc test pass on the Mac M4.)
 
 See `docs/port-test-matrix.md`.

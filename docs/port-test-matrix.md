@@ -7,7 +7,7 @@ stay in `work/`, never in git.
 
 | Milestone | Gate | Status |
 |---|---|---|
-| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ⚠️ parser ✅, Valentina ✅, QTVR and dirplayer-rs pending |
+| M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ⚠️ parser ✅, Valentina ✅, QTVR ✅; dirplayer-rs pending |
 | M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ⏳ |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ |
 | M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
@@ -83,6 +83,7 @@ in the crate docs.
   - **All 15 `.dat` files** open.
   - `xtask valentina <file.dat>` dumps every table of all 15 databases to CSV
     in `work/valentina/` without errors (36 tables).
+  - The same tests and the RA dump also pass on the Mac mini M4 (2026-10-30).
 - Records are 1-based and stored in insertion order, not canonical order.
 - Encyclopedia text uses HTML entities plus iLumina markup (`+~…`). That
   matches the `ImlToHtml` handler in the Lingo.
@@ -92,17 +93,36 @@ in the crate docs.
   - `.ind` indexes, which are optional because tables are small enough to scan in memory;
   - the SQL subset that the Lingo sends through `ExecuteSql` and `GetCursor`.
 
-### QTVR ⚠️ faces OK, hotspots and graph pending
+### QTVR ✅ graph and hotspots readable (2026-10-30)
 
-- `NZV.mov` (Nazaré) is a **cubic** QTVR. Streams:
-  - one `qtvr` track (50 samples);
-  - a pano track with **28 nodes**;
-  - **168 MPEG-4 frames of 768×768**, which is 28 nodes × 6 cube faces;
-  - a 168-frame `smc` hotspot track of 1500×1500.
-- ffmpeg decodes all 168 faces in about 2 s on x86. It logs MB errors, but the
-  frames look right. The `smc` hotspot frames fail to decode, and the node
-  graph (`vrni`, links) isn't parsed yet.
-- For comparison, under Boxedwine QuickTime took seconds per node switch.
+The reader is `port/crates/qtvr`. It parses the movie's sample tables and
+the QTVR 2.x atom containers, and includes an `smc ` decoder.
+
+- **Tracks in `NZV.mov` (Nazaré):**
+  - `qtvr`: 50 node samples, which are 28 panoramas plus 22 object nodes;
+  - `pano`: 28 samples (`pdat` + `cuvw`, type `cube`);
+  - `mp4v`: the 768² faces, 6 per node;
+  - `smc `: the 1000² hotspot maps, 6 per node;
+  - `obje` + `jpeg`: the object nodes;
+  - 13 sprite tracks.
+- **Nodes:** each has a name (`vrsg`, e.g. `NZV_01`), an id (`ndhd`) and
+  hotspots (`hots` with `hsin` type `link`/`undf`). A link carries the target
+  node and its pan/tilt/FOV.
+- **Hotspot maps:** pixel value = hotspot id. The smc decoder uses exactly
+  every byte of each sample.
+- **Evidence:** `cargo test -p qtvr` with the discs:
+  - In Nazaré, every link points to an existing node.
+  - For all 28 panoramas, the ids found in the 6 hotspot maps are a subset of
+    that node's declared hotspots.
+  - **24 of the 25 `.mov` files in `QTVRs/` are tours, and all of them parse.**
+    `Default.mov` is a plain movie.
+- `xtask qtvr <tour.mov>` writes the graph as JSON to `work/qtvr/`.
+- **Faces:** ffmpeg decodes the MPEG-4 faces in about 2 s per tour. It logs MB
+  errors, but the frames look right, so this belongs in `media-prep` (M4).
+- **Next:**
+  - object nodes (`obje`);
+  - what the sprite tracks do (wired actions?);
+  - a WebGL cube viewer that switches nodes from the hotspot maps (M4).
 
 ### Not done in M0 yet ⏳
 

@@ -14,6 +14,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `port/crates/valentina`: reader for the undocumented Valentina 1.x format
   (all 15 iLumina databases: KJV slot-heap text, RA/encyclopedia BLOBs) and
   `xtask valentina`, which dumps CSVs to `work/`.
+- `port/crates/qtvr`: QuickTime VR reader (node graph, links, cubic view
+  limits, `smc` hotspot maps; all 24 tours parse) and `xtask qtvr`, which
+  writes JSON to `work/`.
 - `docs/history.md`: product history, 2005 system requirements and the
   publisher's media FAQ (from the Wayback Machine), and what follows for the runtime.
 - Canonical documentation in `docs/`: use cases, architecture decision

@@ -3,6 +3,7 @@
 //!
 //!   cargo run -p xtask -- inventory <discs-dir> [out-dir]
 //!   cargo run -p xtask -- valentina <file.dat> [out-dir]
+//!   cargo run -p xtask -- qtvr <tour.mov> [out-dir]
 //!
 //! `<discs-dir>` holds cd1..cd4 (the same layout as the Wine runtime).
 
@@ -37,8 +38,21 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("qtvr") if args.len() >= 2 => {
+            let out = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("work/qtvr"));
+            if let Err(e) = qtvr_dump(Path::new(&args[1]), &out) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
         _ => {
             eprintln!("usage: xtask inventory <discs-dir> [out-dir]");
+            eprintln!(
+                "       xtask qtvr <tour.mov> [out-dir]         # node graph as JSON, local only"
+            );
             eprintln!("       xtask valentina <file.dat> [out-dir]   # CSV per table, local only");
             std::process::exit(2);
         }
@@ -325,4 +339,72 @@ fn valentina_dump(dat_path: &Path, out_dir: &Path) -> Result<(), Box<dyn std::er
 
 fn rifx_latin1(b: &[u8]) -> String {
     rifx::reader::latin1(b)
+}
+
+/// Write a tour's node graph (nodes, hotspots, links, view limits) as JSON.
+fn qtvr_dump(mov: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let data = std::fs::read(mov)?;
+    let t = qtvr::tour(&data)?;
+    let s4 = |k: &[u8; 4]| String::from_utf8_lossy(k).trim().to_string();
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut j = String::from("{\n  \"nodes\": [\n");
+    let panos: Vec<_> = t
+        .nodes
+        .iter()
+        .filter(|n| &n.kind == b"pano")
+        .map(|n| n.id)
+        .collect();
+    for (i, n) in t.nodes.iter().enumerate() {
+        let view = panos
+            .iter()
+            .position(|&id| id == n.id)
+            .and_then(|p| t.panos.get(p));
+        let _ = write!(
+            j,
+            "    {{\"id\": {}, \"name\": \"{}\", \"kind\": \"{}\"",
+            n.id,
+            esc(&n.name),
+            s4(&n.kind)
+        );
+        if let Some(v) = view {
+            let _ = write!(
+                j,
+                ", \"pano\": {{\"type\": \"{}\", \"pan\": [{}, {}], \"tilt\": [{}, {}], \"fov\": [{}, {}], \"default\": [{}, {}, {}]}}",
+                s4(&v.pano_type), v.pan.0, v.pan.1, v.tilt.0, v.tilt.1, v.fov.0, v.fov.1, v.default_view.0, v.default_view.1, v.default_view.2
+            );
+        }
+        j.push_str(", \"hotspots\": [");
+        for (k, h) in n.hotspots.iter().enumerate() {
+            let _ = write!(
+                j,
+                "{}{{\"id\": {}, \"kind\": \"{}\"",
+                if k > 0 { ", " } else { "" },
+                h.id,
+                s4(&h.kind)
+            );
+            if let Some(l) = &h.link {
+                let _ = write!(
+                    j,
+                    ", \"to\": {}, \"pan\": {}, \"tilt\": {}, \"fov\": {}",
+                    l.to_node, l.to_pan, l.to_tilt, l.to_fov
+                );
+            }
+            j.push('}');
+        }
+        let _ = writeln!(j, "]}}{}", if i + 1 < t.nodes.len() { "," } else { "" });
+    }
+    j.push_str("  ]\n}\n");
+    std::fs::create_dir_all(out_dir)?;
+    let path = out_dir.join(format!(
+        "{}.json",
+        mov.file_stem().unwrap().to_string_lossy()
+    ));
+    std::fs::write(&path, j)?;
+    println!(
+        "{} nodes ({} panoramas) -> {}",
+        t.nodes.len(),
+        t.panos.len(),
+        path.display()
+    );
+    Ok(())
 }
