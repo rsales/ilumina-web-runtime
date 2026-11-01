@@ -35,6 +35,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   JPEG/BMP media, Lingo's text styles); `xtask play` runs a movie's startup
   and writes a PNG. The browser page runs the movie's Lingo (fetching the
   files the run reads) and asks for the owner's registration data in a form.
+  Frame loop (`go`, frame labels, endSprite, stepFrame); the page plays at
+  15 fps. Lingo string literals in Mac Roman are decoded as such.
 
 ### Fixed
 - Port: `the last char/word/…` (index -30000) selected the first one; empty

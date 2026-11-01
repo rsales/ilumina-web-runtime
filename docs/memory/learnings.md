@@ -189,3 +189,9 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   per row. Small icons are stored uncompressed.
 - **Compare against the owner's Boxedwine screenshot of the same state**:
   three real bugs showed up in one comparison of Home.
+- **D7+ frame scripts are script-channel intervals** (channel 0 in the
+  interval list), not fields of the frame record.
+- **Lingo literals mix encodings**: Mac Roman and Windows-1252 strings
+  coexist in one cast; decide per string.
+- **Verify that scripted edits applied**: a Python replace that silently did
+  not match left the docs claiming a check that did not exist (now added).

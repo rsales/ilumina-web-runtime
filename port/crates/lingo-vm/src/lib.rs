@@ -161,6 +161,41 @@ mod tests {
     }
 
     #[test]
+    fn param_count_and_param() {
+        // Regression: Utilities.sprintf uses `the paramCount` / param(n).
+        // on f a, b, c: return the paramCount * 10 + param(2)
+        const THEBUILTIN: u8 = 0x66;
+        let p = program(
+            ScriptKind::Movie,
+            &["f", "paramCount", "param"],
+            &[],
+            vec![],
+            vec![H {
+                name: "f",
+                args: &["a", "b", "c"],
+                locals: 0,
+                code: vec![
+                    (ARGLIST, 0),
+                    (THEBUILTIN, 1),
+                    (PUSHINT8, 10),
+                    (MUL, 0),
+                    (PUSHINT8, 2),
+                    (ARGLIST, 1),
+                    (EXTCALL, 2),
+                    (ADD, 0),
+                    (RET, 0),
+                ],
+            }],
+        );
+        assert_eq!(
+            run(p, "f", vec![Value::Int(5), Value::Int(7)])
+                .unwrap()
+                .to_int(),
+            27
+        );
+    }
+
+    #[test]
     fn repeat_loop_with_locals_and_params() {
         // on sum n: s = 0; i = 1; repeat while i <= n … ; return s
         // encoded as: loop: getlocal i; getparam n; lt-or-eq…  (uses lt with n+1)

@@ -198,7 +198,7 @@ pub fn script(movie: &Movie, section: i32, index: u32) -> Result<Script, Error> 
                 let n = r.u32()? as usize;
                 let raw = r.bytes(n)?;
                 if kind == 1 {
-                    Literal::String(latin1(raw.strip_suffix(&[0]).unwrap_or(raw)))
+                    Literal::String(script_string(raw.strip_suffix(&[0]).unwrap_or(raw)))
                 } else if n == 8 {
                     Literal::Float(f64::from_be_bytes(raw.try_into().unwrap()))
                 } else {
@@ -227,4 +227,40 @@ pub fn script(movie: &Movie, section: i32, index: u32) -> Result<Script, Error> 
         handlers,
         literals,
     })
+}
+
+/// Decode a Lingo string literal. iLumina's scripts mix Mac-authored
+/// strings (Mac OS Roman: `Ativa\x8d\x8bo` = "Ativação") and
+/// Windows-authored ones (`C\xf3pia` = "Cópia"), even within one cast.
+/// Bytes 0x80–0x9F are letters in Mac Roman but rare punctuation in
+/// Windows-1252, while Windows accented letters are ≥ 0xC0: a string with
+/// the former and none of the latter is read as Mac Roman (Director maps
+/// Mac characters when a Mac-authored movie plays on Windows; ⏳ confirm
+/// the projector does it for literals).
+// Regression: "Ativação do iLúmina" came out as "Ativa\u{8d}\u{8b}o do iL\u{9c}mina".
+pub fn script_string(b: &[u8]) -> String {
+    let mac = b.iter().any(|&c| (0x80..0xa0).contains(&c)) && !b.iter().any(|&c| c >= 0xc0);
+    if mac {
+        crate::text::mac_roman(b)
+    } else {
+        crate::text::cp1252(b)
+    }
+}
+
+#[cfg(test)]
+mod script_string_tests {
+    use super::script_string;
+
+    #[test]
+    fn mac_and_windows_literals() {
+        assert_eq!(
+            script_string(b"Ativa\x8d\x8bo do iL\x9cmina"),
+            "Ativação do iLúmina"
+        );
+        assert_eq!(
+            script_string(b"Registre Sua C\xf3pia"),
+            "Registre Sua Cópia"
+        );
+        assert_eq!(script_string(b"plain"), "plain");
+    }
 }

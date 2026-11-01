@@ -642,7 +642,7 @@ fn score_dump(movie_path: &Path, frame: usize) -> Result<(), Box<dyn std::error:
         score.frame_count,
         score.channels,
         score.record_size,
-        score.frame_script(frame)
+        score.frame_script(frame).map(|b| (b.cast_lib, b.member))
     );
     let dir = movie_path.parent().unwrap_or(Path::new("."));
     let mut cache: std::collections::HashMap<u16, Vec<rifx::cast::Member>> = Default::default();

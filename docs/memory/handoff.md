@@ -35,6 +35,14 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 3, frame loop (2026-10-31):** the browser page works on the Mac
+(whole startup, Home drawn). Frame loop in (`stage::step`, labels, go,
+endSprite, stepFrame); Home holds on frame 2 calling `oLite.TriggerLoop`,
+which shows the activation dialog once. Page plays at 15 fps. Next: mouse
+events (rollover/click → module navigation) and an interactive dialog UI in
+the page (activation needs the owner's code), then `go to movie` keeping
+globals.
+
 **M2 slice 3, browser (2026-10-31):** the page runs the player (Lingo
 checkbox, default on): fetch loop for the files the run reads, registration
 form (owner's data, browser-only), draws the run-time stage. Native loop test

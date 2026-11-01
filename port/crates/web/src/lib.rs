@@ -40,6 +40,11 @@ pub struct App {
     /// The owner's registration data, typed into the page (never generated,
     /// ADR 0005): name, e-mail, CEP.
     owner: Option<(String, String, String)>,
+    /// Elapsed milliseconds of each playback step since the startup, so a
+    /// re-run (after fetching files) replays the same session.
+    log: Vec<i64>,
+    /// The startup completed, so playback may continue.
+    started: bool,
     pub frame: Vec<u8>,
 }
 
@@ -61,6 +66,17 @@ impl player::DiscFiles for PageDisc {
             }
         }
     }
+}
+
+/// Result of [`App::play_step`].
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    /// The playhead is on this frame.
+    Frame(usize),
+    /// Add these files, then `play` again (the session is replayed).
+    NeedFiles(Vec<String>),
+    /// Lingo asked for another movie (`go to movie`); not followed yet.
+    GoMovie(String),
 }
 
 /// Result of [`App::play`].
@@ -104,6 +120,8 @@ impl App {
             run: None,
             missing: Default::default(),
             owner: None,
+            log: Vec::new(),
+            started: false,
             frame: Vec::new(),
         }
     }
@@ -165,6 +183,7 @@ impl App {
         drop(files);
         self.stage = Some(stage);
         self.run = None;
+        self.log.clear();
         Ok(())
     }
 
@@ -203,6 +222,18 @@ impl App {
             });
         }
         let steps = player::stage::start_movie(&mut vm, &mut host);
+        // Replay the playback steps of this session (a re-run after files
+        // were fetched must reach the same state).
+        let mut replay_error = None;
+        self.started = steps.iter().all(|(_, r)| r.is_ok());
+        if self.started {
+            for &ms in &self.log {
+                if let Err(e) = player::stage::step(&mut vm, &mut host, ms) {
+                    replay_error = Some(e.message);
+                    break;
+                }
+            }
+        }
         let missing: Vec<String> = self.missing.borrow().iter().cloned().collect();
         if !missing.is_empty() {
             return Ok(Play::NeedFiles(missing));
@@ -229,8 +260,39 @@ impl App {
                 }
             })
             .collect();
+        let mut lines: Vec<String> = lines;
+        if let Some(e) = replay_error {
+            lines.push(format!("playback: {e}"));
+        }
         self.run = Some((vm, host));
         Ok(Play::Ran(lines))
+    }
+
+    /// One frame of playback (`elapsed_ms` since the last). Files the step
+    /// read that are missing come back as [`Step::NeedFiles`]: add them and
+    /// `play` again, which replays the session.
+    pub fn play_step(&mut self, elapsed_ms: i64) -> Result<Step, String> {
+        self.missing.borrow_mut().clear();
+        if !self.started {
+            return Err("the startup did not complete".into());
+        }
+        let (vm, host) = self.run.as_mut().ok_or("not playing")?;
+        self.log.push(elapsed_ms);
+        let r = player::stage::step(vm, host, elapsed_ms);
+        let missing: Vec<String> = self.missing.borrow().iter().cloned().collect();
+        if !missing.is_empty() {
+            return Ok(Step::NeedFiles(missing));
+        }
+        r.map_err(|e| e.message)?;
+        if let Some((movie, _)) = host.go_movie.take() {
+            return Ok(Step::GoMovie(movie));
+        }
+        Ok(Step::Frame(host.frame))
+    }
+
+    /// The running movie's current frame (0 when not playing).
+    pub fn play_frame(&self) -> usize {
+        self.run.as_ref().map(|r| r.1.frame).unwrap_or(0)
     }
 
     /// Draw the stage as the running Lingo left it into `self.frame`.
@@ -588,6 +650,34 @@ pub extern "C" fn play_render() -> i32 {
     FONTS.with(|f| status(APP.with(|a| a.borrow_mut().play_render(f)), |n| n as i32))
 }
 
+/// One frame of playback after `elapsed_ms`. Returns the frame (> 0), or
+/// 0 when files must be added first (list in the result buffer; then call
+/// `play` again), -2 for `go to movie` (movie name in the result buffer),
+/// -1 on error.
+#[no_mangle]
+pub extern "C" fn play_step(elapsed_ms: u32) -> i32 {
+    status(
+        APP.with(|a| a.borrow_mut().play_step(elapsed_ms as i64)),
+        |s| match s {
+            Step::Frame(f) => f as i32,
+            Step::NeedFiles(v) => {
+                set_result(&v.join("\n"));
+                0
+            }
+            Step::GoMovie(m) => {
+                set_result(&m);
+                -2
+            }
+        },
+    )
+}
+
+/// The running movie's current frame.
+#[no_mangle]
+pub extern "C" fn play_frame() -> u32 {
+    APP.with(|a| a.borrow().play_frame() as u32)
+}
+
 /// Files the last run or draw needed (one per line in the result buffer).
 #[no_mangle]
 pub extern "C" fn missing() -> i32 {
@@ -753,6 +843,8 @@ mod tests {
                 assert!(lines[0].contains("Registre Sua C"), "{lines:?}");
                 app.play_render(&PageFonts::default()).unwrap();
                 assert_eq!(app.frame.len(), 1024 * 768 * 4);
+                // Without the owner's data the startup stopped: no playback.
+                assert!(app.play_step(66).unwrap_err().contains("did not complete"));
             })
             .unwrap()
             .join()

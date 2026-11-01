@@ -71,7 +71,8 @@ pub struct BehaviorRef {
 pub struct SpriteInterval {
     pub start: u32,
     pub end: u32,
-    /// Sprite number (1-based, as Lingo sees it).
+    /// Sprite number (1-based, as Lingo sees it); 0 = the script channel
+    /// (its behavior is the frame script).
     pub sprite: u16,
     pub behaviors: Vec<BehaviorRef>,
 }
@@ -83,6 +84,30 @@ pub struct Score {
     pub channels: usize,
     frames: Vec<Vec<u8>>,
     pub intervals: Vec<SpriteInterval>,
+    /// Frame labels (`VWLB`): (frame, name), sorted by frame.
+    pub labels: Vec<(usize, String)>,
+}
+
+/// Frame labels (`VWLB`): `u16 count`, `count + 1` × (`u16 frame, u16 name
+/// offset`), then the names (Mac Roman). The extra entry ends the last name.
+pub fn parse_labels(d: &[u8]) -> Vec<(usize, String)> {
+    let be = |o: usize| {
+        d.get(o..o + 2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)
+    };
+    let Some(n) = be(0) else { return Vec::new() };
+    let names = 2 + (n + 1) * 4;
+    let mut out = Vec::new();
+    for i in 0..n {
+        let (Some(frame), Some(a), Some(b)) = (be(2 + i * 4), be(4 + i * 4), be(8 + i * 4)) else {
+            break;
+        };
+        if let Some(t) = d.get(names + a..names + b.max(a)) {
+            out.push((frame, crate::text::mac_roman(t)));
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Sprite intervals from the score's entry list (see the module notes).
@@ -107,8 +132,10 @@ fn intervals<'a>(entry: &dyn Fn(usize) -> Option<&'a [u8]>) -> Result<Vec<Sprite
         let end = p.u32()?;
         let _ = (p.u32()?, p.u32()?);
         let channel = p.u32()?;
-        if channel < 6 {
-            continue; // not a sprite channel
+        // Channel 0 is the script channel (frame scripts, sprite 0); the
+        // other non-sprite channels carry no behaviors.
+        if channel != 0 && channel < 6 {
+            continue;
         }
         let mut behaviors = Vec::new();
         if let Some(sec) = entry(i + 1) {
@@ -135,7 +162,11 @@ fn intervals<'a>(entry: &dyn Fn(usize) -> Option<&'a [u8]>) -> Result<Vec<Sprite
         out.push(SpriteInterval {
             start,
             end,
-            sprite: (channel - 5) as u16,
+            sprite: if channel == 0 {
+                0
+            } else {
+                (channel - 5) as u16
+            },
             behaviors,
         });
     }
@@ -214,14 +245,19 @@ impl Score {
             channels,
             frames,
             intervals,
+            labels: Vec::new(),
         })
     }
 
     pub fn from_movie(movie: &Movie) -> Result<Option<Self>, Error> {
-        match movie.first(VWSC) {
-            Some(c) => Ok(Some(Self::parse(movie.chunk_data(c.id)?)?)),
-            None => Ok(None),
+        let Some(c) = movie.first(VWSC) else {
+            return Ok(None);
+        };
+        let mut score = Self::parse(movie.chunk_data(c.id)?)?;
+        if let Some(l) = movie.first(FourCC::new(b"VWLB")) {
+            score.labels = parse_labels(movie.chunk_data(l.id)?);
         }
+        Ok(Some(score))
     }
 
     /// Non-empty sprite channels of frame `frame` (1-based).
@@ -287,12 +323,13 @@ impl Score {
             .filter(move |i| i.start <= f && f <= i.end)
     }
 
-    /// Frame script reference of frame `frame` (channel 0): `(cast lib, member)`.
-    pub fn frame_script(&self, frame: usize) -> Option<(u16, u16)> {
-        let f = self.frames.get(frame.wrapping_sub(1))?;
-        let lib = u16::from_be_bytes([f[4], f[5]]);
-        let member = u16::from_be_bytes([f[6], f[7]]);
-        (member != 0).then_some((lib, member))
+    /// The frame script of frame `frame`: the script channel's behavior.
+    // Regression: it was read from the frame record (garbage such as
+    // member 2459); D7+ stores it as a script-channel interval.
+    pub fn frame_script(&self, frame: usize) -> Option<&BehaviorRef> {
+        self.intervals_at(frame)
+            .find(|i| i.sprite == 0)
+            .and_then(|i| i.behaviors.first())
     }
 }
 
@@ -453,7 +490,44 @@ mod tests {
             }]
         );
         assert_eq!(s.intervals_at(94).count(), 1);
+        assert!(s.frame_script(1).is_none());
         assert_eq!(s.intervals_at(95).count(), 0);
+    }
+
+    #[test]
+    fn frame_script_comes_from_the_script_channel() {
+        let mut primary = u32s(&[2, 2, 0, 0, 0]); // channel 0, frame 2
+        primary.extend([0u8; 24]);
+        let e = vwsc(&[
+            u32s(&[1, 2]),
+            primary,
+            vec![0, 2, 0, 10, 0, 0, 0, 0],
+            Vec::new(),
+        ]);
+        let s = Score::parse(&e).unwrap();
+        let fs = s.frame_script(2).unwrap();
+        assert_eq!((fs.cast_lib, fs.member), (2, 10));
+        assert!(s.frame_script(3).is_none());
+    }
+
+    #[test]
+    fn frame_labels() {
+        // Home's labels: Home 1, Demo 25, Video 45, QuitCheck 65.
+        let mut d = vec![0, 4];
+        for (f, o) in [(1u16, 0u16), (25, 4), (45, 8), (65, 13), (0, 22)] {
+            d.extend(f.to_be_bytes());
+            d.extend(o.to_be_bytes());
+        }
+        d.extend(b"HomeDemoVideoQuitCheck");
+        assert_eq!(
+            parse_labels(&d),
+            vec![
+                (1, "Home".to_string()),
+                (25, "Demo".into()),
+                (45, "Video".into()),
+                (65, "QuitCheck".into())
+            ]
+        );
     }
 
     #[test]

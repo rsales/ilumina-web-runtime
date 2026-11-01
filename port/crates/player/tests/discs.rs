@@ -315,6 +315,44 @@ fn home_managers_build_inner() {
     if let Ok(out) = std::env::var("ILUMINA_RENDER") {
         render_png(&host, "Home.dxr", Path::new(&out));
     }
+    // Playback after the startup: a few seconds of frames at 15 fps.
+    let mut frames = Vec::new();
+    let mut play_error = None;
+    for _ in 0..45 {
+        if let Err(e) = player::stage::step(&mut vm, &mut host, 66) {
+            play_error = Some(e);
+            break;
+        }
+        frames.push(host.frame);
+    }
+    frames.dedup();
+    eprintln!("playback frames: {frames:?}");
+    eprintln!("dialogs: {} shown", host.dialogs_shown.len());
+    for d in host.dialogs_shown.iter().take(12) {
+        eprintln!("  {}", d.chars().take(100).collect::<String>());
+    }
+    // Ratchet: Home holds on frame 2 ("trigger loop": oLite.TriggerLoop,
+    // then `go the frame`) without errors.
+    assert!(play_error.is_none(), "playback stopped: {play_error:?}");
+    assert_eq!(frames, [2], "playback frames changed: update the ratchet");
+    if let Some(e) = &play_error {
+        eprintln!("playback: stopped: {e}");
+    }
+    // The unlocked media must be QuickTime/MP4 files: a known atom type
+    // right after the first atom's size (checked on a few; they are large).
+    // Regression: the matrix claimed this check before it existed (an edit
+    // that silently did not apply).
+    let patched: Vec<String> = host.vfs.patched().map(|(p, _)| p.to_string()).collect();
+    const ATOMS: [&[u8; 4]; 7] = [
+        b"moov", b"mdat", b"free", b"skip", b"wide", b"ftyp", b"pnot",
+    ];
+    for p in patched.iter().take(3) {
+        let b = host.vfs.read(p).expect("patched file reads");
+        assert!(
+            ATOMS.iter().any(|a| &b[4..8] == *a),
+            "{p}: not a QuickTime header after unlocking"
+        );
+    }
     eprintln!(
         "media files unlocked (patched): {}",
         host.vfs.patched().count()

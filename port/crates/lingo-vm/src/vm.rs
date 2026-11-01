@@ -101,6 +101,8 @@ pub struct Vm {
     pub step_limit: u64,
     steps: u64,
     stack_trace: Vec<String>,
+    /// Arguments each running handler received (`the paramCount`, `param(n)`).
+    passed: Vec<Vec<Value>>,
     pending_trace: Option<Vec<String>>,
     rng: u64,
 }
@@ -158,6 +160,7 @@ impl Vm {
             step_limit: 20_000_000,
             steps: 0,
             stack_trace: Vec::new(),
+            passed: Vec::new(),
             pending_trace: None,
             rng: 0x2545_f491_4f6c_dd1d,
         }
@@ -380,6 +383,17 @@ impl Vm {
         if let Some((s, h)) = self.program.movie_handler(name) {
             return self.run(host, s, h, None, args);
         }
+        // param(n): the n-th argument the running handler received.
+        if name.eq_ignore_ascii_case("param") {
+            let n = args.first().map(|v| v.to_int()).unwrap_or(0);
+            let v = self
+                .passed
+                .last()
+                .and_then(|a| a.get((n - 1).max(0) as usize).filter(|_| n >= 1))
+                .cloned()
+                .unwrap_or_default();
+            return Ok(v);
+        }
         if let Some(v) = builtins::call(self, host, name, &args).map_err(|e| self.error(e))? {
             return Ok(v);
         }
@@ -520,6 +534,13 @@ impl Vm {
         match name.to_ascii_lowercase().as_str() {
             "itemdelimiter" => return Ok(Value::str(self.item_delimiter.to_string())),
             "floatprecision" => return Ok(Value::Int(4)),
+            // Arguments the running handler received (not its declared count).
+            // Regression: Utilities.sprintf reads it; it was not implemented.
+            "paramcount" => {
+                return Ok(Value::Int(
+                    self.passed.last().map(|a| a.len()).unwrap_or(0) as i64
+                ))
+            }
             _ => {}
         }
         match host.the(self, name)? {
@@ -567,6 +588,7 @@ impl Vm {
                 ),
             )
         };
+        self.passed.push(args.clone());
         let mut params = args;
         if params.len() < n_args {
             params.resize(n_args, Value::Void);
@@ -588,6 +610,7 @@ impl Vm {
             Err(Exit::Msg(m)) => Err(self.error(m)),
         };
         self.stack_trace.pop();
+        self.passed.pop();
         r
     }
 

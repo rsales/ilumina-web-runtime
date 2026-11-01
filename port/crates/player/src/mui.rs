@@ -57,7 +57,14 @@ pub struct Owner {
 }
 
 impl Responder for Owner {
-    fn dialog(&mut self, _: &str, items: &[DialogItem]) -> Vec<DialogAction> {
+    fn dialog(&mut self, title: &str, items: &[DialogItem]) -> Vec<DialogAction> {
+        // The owner answers the registration dialog only; any other dialog
+        // (activation, about) is closed, like `CloseAll`.
+        // Regression: the activation dialog would have got the name typed
+        // into its code field.
+        if !title.to_lowercase().contains("registr") {
+            return vec![DialogAction::Close];
+        }
         let texts: Vec<usize> = items
             .iter()
             .enumerate()
@@ -223,7 +230,7 @@ mod tests {
             cep: "C".into(),
         };
         assert_eq!(
-            o.dialog("t", &items),
+            o.dialog("Registre Sua Cópia", &items),
             vec![
                 DialogAction::SetValue(2, "N".into()),
                 DialogAction::SetValue(3, "E".into()),
@@ -232,6 +239,10 @@ mod tests {
             ]
         );
         assert_eq!(CloseAll.dialog("t", &items), vec![DialogAction::Close]);
+        assert_eq!(
+            o.dialog("Ativação do iLúmina", &items),
+            vec![DialogAction::Close]
+        );
     }
 
     #[test]

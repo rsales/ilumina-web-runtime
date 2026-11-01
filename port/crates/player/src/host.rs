@@ -283,7 +283,7 @@ pub struct PlayerHost {
     /// reference (`ILUMINA_RES` in `runtime/lib.sh`): the size the program
     /// was made for, so it does not offer to change the display.
     pub screen: (i64, i64),
-    settings: HashMap<String, Value>,
+    pub(crate) settings: HashMap<String, Value>,
     files: HashMap<i64, FileIo>,
     next_id: i64,
     pub v4md: crate::v4md::V4md,
@@ -304,6 +304,13 @@ pub struct PlayerHost {
     pub frame_script: Option<Value>,
     /// Current frame (1-based; 0 = before the first).
     pub frame: usize,
+    /// The frame script's score interval.
+    pub frame_script_span: Option<(u32, u32)>,
+    /// Where `go` sends the playhead at the end of this frame.
+    pub go_target: Option<usize>,
+    /// `go to movie`: the movie (and frame/label) to switch to; the page
+    /// loads it (M2 slice 4).
+    pub go_movie: Option<(String, Value)>,
     /// Font metrics for measuring text (the page's fonts, or an approximation).
     pub fonts: Box<dyn director::text::Fonts>,
     /// `updateStage` calls (the page redraws from the sprite state).
@@ -414,6 +421,9 @@ impl PlayerHost {
             sprites: Default::default(),
             frame_script: None,
             frame: 0,
+            frame_script_span: None,
+            go_target: None,
+            go_movie: None,
             mouse: (-1, -1),
             fonts: Box::new(crate::fonts::ApproxFonts),
             stage_updates: 0,
@@ -668,6 +678,21 @@ impl PlayerHost {
             }
             _ => return None,
         })
+    }
+
+    /// The frame a `go` target names: a number or a label (case-insensitive).
+    pub fn frame_of(&self, v: &Value) -> Option<usize> {
+        match v {
+            Value::Str(name) | Value::Symbol(name) => self
+                .score
+                .as_ref()?
+                .labels
+                .iter()
+                .find(|(_, l)| l.eq_ignore_ascii_case(name))
+                .map(|(f, _)| *f),
+            v if v.to_int() > 0 => Some(v.to_int() as usize),
+            _ => None,
+        }
     }
 
     /// A member by (cast lib, number).
@@ -995,6 +1020,39 @@ impl lingo_vm::Host for PlayerHost {
                     Some(v) => v,
                     None => return Ok(None),
                 }
+            }
+            // go(frame), go("label"), go(frame, "movie"), go("label", "movie")
+            "go" | "gotoframe" => {
+                if args.len() >= 2 {
+                    self.go_movie = Some((arg(args, 1).to_text(), a0.clone()));
+                } else if let Some(f) = self.frame_of(&a0) {
+                    self.go_target = Some(f);
+                } else {
+                    return Err(format!("go: no frame {a0}"));
+                }
+                Value::Void
+            }
+            "label" => Value::Int(self.frame_of(&Value::str(a0.to_text())).unwrap_or(0) as i64),
+            "marker" => {
+                // marker(n): the n-th label after (n>0) / before the current one.
+                let labels: Vec<usize> = self
+                    .score
+                    .as_ref()
+                    .map(|s| s.labels.iter().map(|l| l.0).collect())
+                    .unwrap_or_default();
+                let cur = labels.iter().rposition(|&f| f <= self.frame);
+                let n = a0.to_int();
+                let idx = match cur {
+                    Some(c) => c as i64 + n,
+                    None => n - 1,
+                };
+                Value::Int(
+                    usize::try_from(idx)
+                        .ok()
+                        .and_then(|i| labels.get(i))
+                        .copied()
+                        .unwrap_or(0) as i64,
+                )
             }
             "updatestage" => {
                 self.stage_updates += 1;
@@ -1751,6 +1809,15 @@ impl PlayerHost {
             "applicationpath" => Value::str(APP_DIR),
             "moviename" => Value::str(self.movie_name.clone()),
             "frame" => Value::Int(self.frame as i64),
+            "framelabel" => self
+                .score
+                .as_ref()
+                .and_then(|s| s.labels.iter().find(|l| l.0 == self.frame))
+                .map(|l| Value::Str(l.1.clone()))
+                .unwrap_or(Value::Int(0)),
+            "lastframe" => {
+                Value::Int(self.score.as_ref().map(|s| s.frame_count).unwrap_or(0) as i64)
+            }
             // The stage fills the 1024×768 desktop (as on the Wine reference).
             "stageleft" => Value::Int((self.screen.0 - self.stage.0) / 2),
             "stagetop" => Value::Int((self.screen.1 - self.stage.1) / 2),
@@ -2058,5 +2125,50 @@ mod tests {
         assert_eq!(got.to_string(), "rect(10, 100, 19, 206)");
         // Reg point scaled by 106/9: loc is 47 px below the top.
         assert_eq!(host.sprites[&4].loc, (14, 147));
+    }
+
+    #[test]
+    fn go_and_labels() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        let mut score = rifx::score::Score::parse(&empty_score()).unwrap();
+        score.labels = vec![(1, "Home".into()), (25, "Demo".into())];
+        host.score = Some(std::rc::Rc::new(score));
+        host.frame = 3;
+        host.call(&mut vm, "go", &[Value::str("demo")]).unwrap();
+        assert_eq!(host.go_target, Some(25));
+        host.call(&mut vm, "go", &[Value::Int(2)]).unwrap();
+        assert_eq!(host.go_target, Some(2));
+        assert!(host.call(&mut vm, "go", &[Value::str("nope")]).is_err());
+        let l = host
+            .call(&mut vm, "label", &[Value::str("Home")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(l.to_int(), 1);
+        let m = host
+            .call(&mut vm, "marker", &[Value::Int(1)])
+            .unwrap()
+            .unwrap();
+        assert_eq!(m.to_int(), 25);
+        host.call(&mut vm, "go", &[Value::Int(1), Value::str("Bible")])
+            .unwrap();
+        assert_eq!(host.go_movie.as_ref().map(|m| m.0.as_str()), Some("Bible"));
+    }
+
+    /// A VWSC with no frames and no intervals.
+    fn empty_score() -> Vec<u8> {
+        let mut e0 = Vec::new();
+        for v in [20u32, 0, 0] {
+            e0.extend(v.to_be_bytes());
+        }
+        for v in [0u16, 48, 7, 7] {
+            e0.extend(v.to_be_bytes());
+        }
+        let mut d = Vec::new();
+        for v in [0u32, 0, 12, 1, 2, 0, 0, e0.len() as u32] {
+            d.extend(v.to_be_bytes());
+        }
+        d.extend(e0);
+        d
     }
 }

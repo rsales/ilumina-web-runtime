@@ -135,6 +135,7 @@ function status(text, error = false) {
 }
 
 async function openMovie(name) {
+  stopPlayback();
   const movie = `${DIR}/${name}.dxr`;
   status(`carregando ${name}…`);
   const t0 = performance.now();
@@ -201,6 +202,58 @@ async function play(movie) {
   await drawPlay();
   const ms = Math.round(performance.now() - t0);
   status(stop ? `${name}: parou em ${stop.split(":")[0]} (${ms} ms)` : `${name}: partida completa (${ms} ms)`, !!stop);
+  if (!stop) startPlayback(movie);
+}
+
+// --- playback: one frame per tick (Director's default tempo, 15 fps) ---
+
+const TICK_MS = 1000 / 15;
+let ticker = null;
+
+function stopPlayback() {
+  if (ticker) clearTimeout(ticker);
+  ticker = null;
+}
+
+function startPlayback(movie) {
+  stopPlayback();
+  let last = performance.now();
+  let busy = false;
+  const tick = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const now = performance.now();
+      const rc = wasm.play_step(Math.round(now - last));
+      last = now;
+      if (rc === -1) throw new Error(result());
+      if (rc === -2) {
+        status(`o Lingo pediu o filme "${result()}" (troca de filme ainda não implementada)`, true);
+        stopPlayback();
+        return;
+      }
+      if (rc === 0) {
+        // The step read files not fetched yet: fetch them and replay.
+        await addFiles(result().split("\n"), "arquivos que o Lingo leu");
+        for (let round = 0; ; round++) {
+          if (round > 40) throw new Error("a execução continua pedindo arquivos");
+          const n = callStr("play", movie);
+          if (n === 0) break;
+          await addFiles(result().split("\n"), "arquivos que o Lingo leu");
+        }
+      }
+      await drawPlay();
+      $("frame").value = wasm.play_frame();
+    } catch (e) {
+      status(e.message, true);
+      stopPlayback();
+      return;
+    } finally {
+      busy = false;
+    }
+    if (ticker !== null) ticker = setTimeout(tick, TICK_MS);
+  };
+  ticker = setTimeout(tick, TICK_MS);
 }
 
 async function drawPlay() {

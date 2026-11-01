@@ -36,6 +36,8 @@ pub struct SpriteState {
     pub score: Option<rifx::score::Sprite>,
     /// Properties of an Xtra sprite (OSControl, TreeView…), as set by Lingo.
     pub xtra_props: Vec<(String, Value)>,
+    /// The score interval (first, last frame) this sprite belongs to.
+    pub span: Option<(u32, u32)>,
 }
 
 fn objects(list: &[Value]) -> Vec<ObjectRef> {
@@ -59,10 +61,29 @@ fn params(text: Option<&str>) -> Vec<(String, Value)> {
     }
 }
 
-/// Enter frame `frame` (1-based) of the loaded score: set up its sprites
-/// and behaviors (when the playhead arrives from elsewhere) and send
-/// `beginSprite`. Returns the sprites that began.
-pub fn begin_frame(
+/// Behavior instances for an interval's behaviors (`spriteNum` = `n`).
+fn behaviors(
+    vm: &mut Vm,
+    host: &PlayerHost,
+    list: &[rifx::score::BehaviorRef],
+    n: u16,
+) -> Vec<Value> {
+    list.iter()
+        .filter_map(|b| {
+            let script = host
+                .member_info(b.cast_lib as i64, b.member as i64)
+                .and_then(|m| m.script)?;
+            Some(vm.new_behavior(script, &params(b.params.as_deref()), n as i64))
+        })
+        .collect()
+}
+
+/// Move the playhead to `frame` (1-based): sprites whose score interval
+/// ends get `endSprite` and leave, sprites whose interval starts get their
+/// behaviors and `beginSprite` (sprites staying in the same interval keep
+/// what Lingo did to them; puppets stay). Same for the frame script.
+/// Returns the sprites that began.
+pub fn enter_frame(
     vm: &mut Vm,
     host: &mut PlayerHost,
     frame: usize,
@@ -70,16 +91,41 @@ pub fn begin_frame(
     let Some(score) = host.score.clone() else {
         return Ok(Vec::new());
     };
+    let records = score.sprites(frame).unwrap_or_default();
+    let span_of = |n: u16| {
+        score
+            .intervals_at(frame)
+            .find(|i| i.sprite == n)
+            .map(|i| (i.start, i.end))
+    };
+    // Leaving: not in this frame, or a different interval / record.
+    let mut ending = Vec::new();
+    for (&n, st) in &host.sprites {
+        if st.puppet {
+            continue;
+        }
+        let rec = records.iter().find(|r| r.number == n);
+        let same = match rec {
+            None => false,
+            Some(r) => match (st.span, span_of(n)) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => st.score.as_ref() == Some(r),
+                _ => false,
+            },
+        };
+        if !same {
+            ending.push(n);
+        }
+    }
+    for &n in &ending {
+        send_to_sprite(vm, host, n, "endSprite", &[])?;
+        host.sprites.remove(&n);
+    }
     let mut began = Vec::new();
-    let sprites = score.sprites(frame).unwrap_or_default();
-    for sp in &sprites {
+    for sp in &records {
         let n = sp.number;
-        if host
-            .sprites
-            .get(&n)
-            .is_some_and(|s| !s.instances.is_empty() || s.puppet)
-        {
-            continue; // already on stage
+        if host.sprites.contains_key(&n) {
+            continue; // stays on stage
         }
         let member = (sp.member != 0).then_some((sp.cast_lib as i64, sp.member as i64));
         let mut st = SpriteState {
@@ -97,39 +143,81 @@ pub fn begin_frame(
             loc_z: n as i64,
             score: Some(sp.clone()),
             stretched: sp.stretch,
+            span: span_of(n),
             ..Default::default()
         };
-        for iv in score.intervals_at(frame).filter(|i| i.sprite == n) {
-            for b in &iv.behaviors {
-                let Some(script) = host
-                    .member_info(b.cast_lib as i64, b.member as i64)
-                    .and_then(|m| m.script)
-                else {
-                    continue;
-                };
-                let p = params(b.params.as_deref());
-                st.instances.push(vm.new_behavior(script, &p, n as i64));
-            }
+        if let Some(iv) = score.intervals_at(frame).find(|i| i.sprite == n) {
+            st.instances = behaviors(vm, host, &iv.behaviors, n);
         }
         host.sprites.insert(n, st);
         began.push(n);
     }
-    // The frame script is a behavior of the script channel.
-    host.frame_script = score
-        .frame_script(frame)
-        .and_then(|(l, m)| host.member_info(l as i64, m as i64))
-        .and_then(|m| m.script)
-        .map(|s| vm.new_behavior(s, &[], 0));
-    for &n in &began {
-        send_to_sprite(vm, host, n, "beginSprite", &[])?;
-    }
-    if let Some(Value::Object(o)) = host.frame_script.clone() {
-        if vm.has_method(&o, "beginSprite") {
-            vm.call_method(host, "beginSprite", vec![Value::Object(o)])?;
+    // The frame script: the script channel's interval.
+    let fs_span = span_of(0);
+    if fs_span != host.frame_script_span || host.frame_script.is_none() && fs_span.is_some() {
+        if let Some(Value::Object(o)) = host.frame_script.take() {
+            if vm.has_method(&o, "endSprite") {
+                vm.call_method(host, "endSprite", vec![Value::Object(o)])?;
+            }
+        }
+        host.frame_script = score
+            .intervals_at(frame)
+            .find(|i| i.sprite == 0)
+            .and_then(|iv| behaviors(vm, host, &iv.behaviors, 0).into_iter().next());
+        host.frame_script_span = fs_span;
+        if let Some(Value::Object(o)) = host.frame_script.clone() {
+            if vm.has_method(&o, "beginSprite") {
+                vm.call_method(host, "beginSprite", vec![Value::Object(o)])?;
+            }
         }
     }
     host.frame = frame;
+    for &n in &began {
+        send_to_sprite(vm, host, n, "beginSprite", &[])?;
+    }
     Ok(began)
+}
+
+/// The first frame's sprites (startup). See [`enter_frame`].
+pub fn begin_frame(
+    vm: &mut Vm,
+    host: &mut PlayerHost,
+    frame: usize,
+) -> Result<Vec<u16>, LingoError> {
+    enter_frame(vm, host, frame)
+}
+
+/// One frame of playback after the startup: the playhead moves to the
+/// frame `go` asked for, else the next one (holding on the last), then
+/// `stepFrame` (actorList), `prepareFrame`, `enterFrame`, `exitFrame`.
+/// `elapsed_ms` advances the movie clock.
+pub fn step(vm: &mut Vm, host: &mut PlayerHost, elapsed_ms: i64) -> Result<(), LingoError> {
+    host.clock_ms += elapsed_ms.max(0);
+    let last = host
+        .score
+        .as_ref()
+        .map(|s| s.frame_count)
+        .unwrap_or(1)
+        .max(1);
+    let next = match host.go_target.take() {
+        Some(f) => f,
+        None => (host.frame + 1).min(last),
+    };
+    enter_frame(vm, host, next.clamp(1, last))?;
+    // stepFrame to every object in the actorList.
+    let actors = match host.settings.get("actorlist") {
+        Some(Value::List(l)) => l.borrow().clone(),
+        _ => Vec::new(),
+    };
+    for o in objects(&actors) {
+        if vm.has_method(&o, "stepFrame") {
+            vm.call_method(host, "stepFrame", vec![Value::Object(o)])?;
+        }
+    }
+    frame_event(vm, host, "prepareFrame")?;
+    frame_event(vm, host, "enterFrame")?;
+    frame_event(vm, host, "exitFrame")?;
+    Ok(())
 }
 
 /// Send `msg` to the behaviors of sprite `n`. `Some(result)` when at least

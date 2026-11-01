@@ -182,6 +182,28 @@ Slices, each with its own check:
    - Before: wire `player` into the browser page (fetch the files the run
      needs, run the startup, draw `draws()`), then the frame loop (`go`,
      labels, endSprite, stepFrame) and mouse events.
+   - ✅ Browser run on the Mac (2026-10-31): the page ran the whole startup
+     with the owner's data and drew Home like `xtask play` (92 ms after the
+     files were cached).
+   - ✅ Frame loop (2026-10-31): `stage::step` moves the playhead (`go` to a
+     frame or label, else the next frame), ends/begins sprites by score
+     interval (`endSprite`/`beginSprite`; puppets stay), sends `stepFrame`
+     to the actorList, then prepareFrame/enterFrame/exitFrame. Frame labels
+     (`VWLB`), `label()`, `marker()`, `the frameLabel`, `the lastFrame`;
+     the frame script now comes from the script channel's interval (the old
+     record read was garbage). `the paramCount`/`param(n)` in the VM.
+     Component test: Home holds on frame 2 ("trigger loop" calls
+     `oLite.TriggerLoop`, then `go the frame`) for 45 steps without errors;
+     the Lite object shows the "Ativação do iLúmina" dialog once (closed by
+     the responder: the trial path).
+   - Lingo string literals mix Mac Roman and Windows-1252 (even within a
+     cast): bytes 0x80–0x9F without Windows accents ≥ 0xC0 decode as Mac
+     Roman ("Ativação", "Código", "ícone"). ⏳ confirm on Wine.
+   - The `Owner` responder answers only the registration dialog; other
+     dialogs are closed.
+   - Browser: `play_step` at 15 fps (Director's default tempo), files a step
+     reads are fetched and the session replayed (step log); `go to movie`
+     is reported, not followed yet.
 4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
    page; `go to movie` loads another module.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
