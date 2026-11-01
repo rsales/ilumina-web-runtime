@@ -212,3 +212,7 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - **The manifest hash forces whole-file fetches in the page**: ranges
   cannot be verified, so share the bytes across replays instead of
   fetching less.
+- **Log the dialogs a run shows** (`xtask play` prints items and answers,
+  masked): one owner run explained a bug two browser rounds could not.
+- **Radio buttons report only the chosen one**: an `itemChanged` per radio
+  makes the last one the program's choice.

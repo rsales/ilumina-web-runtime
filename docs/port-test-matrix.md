@@ -301,6 +301,12 @@ Slices, each with its own check:
      Cause: the answer set every radio button, so the last `itemChanged`
      named "Não quero ativar agora" (the trial path). Fixed in the owner's
      answer and in the page (only the chosen radio is reported). Tests.
+   - ✅ Owner's `xtask play` (2026-11-01, 89fdc28): registration, then
+     "Possuo o meu Código…", then the code typed into the field next to
+     "Código de Ativação:"; the original Lingo accepted the owner's own code
+     and showed the alert "Obrigado por ativar o iLúmina!". Home keeps
+     playing (frame 2). First real activation in the Rust port (ADR 0005:
+     the program checked the code; nothing bypassed). ⏳ Same in the page.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 

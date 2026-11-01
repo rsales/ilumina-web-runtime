@@ -35,6 +35,14 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**Activation works (2026-11-01):** `xtask play` with the owner's `.env`
+(read by xtask itself) registers, chooses "Possuo o meu Código…", types the
+owner's code, and the original Lingo answers "Obrigado por ativar o
+iLúmina!". Bugs fixed on the way: every radio button sent `itemChanged`
+(the last one won, the trial path), `systemDate` was frozen at 2026-01-01,
+`play` stopped before the frame loop. Next: confirm in the page, then the
+kept state should open Home without dialogs after a reload.
+
 **M2 gate, modules (2026-11-01):** the `home_modules` disc test clicks
 each side-navigation module from a fresh Home: all six start and play
 (Bible's book tree has 66 nodes). Also: keyboard events, matte hit
