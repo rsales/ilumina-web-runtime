@@ -2631,6 +2631,8 @@ impl PlayerHost {
             "commanddown" => Value::Int(self.key.command as i64),
             "controldown" => Value::Int(self.key.control as i64),
             "mousedown" | "stilldown" => Value::Int(self.mouse_down as i64),
+            // Regression: Encyclopedia polls `the mouseUp` (not implemented).
+            "mouseup" => Value::Int(!self.mouse_down as i64),
             "clickon" => Value::Int(self.click_on as i64),
             "mousemember" => match self
                 .sprite_under(self.mouse, None)
@@ -3158,6 +3160,10 @@ mod tests {
         assert_eq!(host.the_value("keycode").unwrap().to_int(), 19);
         assert_eq!(host.the_value("key").unwrap().to_text(), "2");
         assert_eq!(host.the_value("shiftdown").unwrap().to_int(), 1);
+        assert_eq!(host.the_value("mouseup").unwrap().to_int(), 1);
+        host.mouse_down = true;
+        assert_eq!(host.the_value("mouseup").unwrap().to_int(), 0);
+        host.mouse_down = false;
         // `dontPassEvent` from a handler keeps the key out of the field.
         host.call(&mut vm, "dontPassEvent", &[]).unwrap();
         assert_eq!(host.pass_event, Some(false));
