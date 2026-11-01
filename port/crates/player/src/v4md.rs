@@ -79,6 +79,25 @@ impl V4md {
                 result = Some(valentina::sql::query(db, &sql));
             }
         }
+        // ILUMINA_SQL_LOG: each query, its row count or error (debugging).
+        if std::env::var("ILUMINA_SQL_LOG").is_ok() {
+            match &result {
+                Some(Ok(rs)) => {
+                    eprintln!("sql {sql:?} -> {} rows", rs.rows.len());
+                    if let Some(r) = rs.rows.first() {
+                        let shape: Vec<String> = rs
+                            .columns
+                            .iter()
+                            .zip(r)
+                            .map(|(c, v)| format!("{c}:{}", v.as_text().chars().count()))
+                            .collect();
+                        eprintln!("    first row (chars): {}", shape.join(" "));
+                    }
+                }
+                Some(Err(e)) => eprintln!("sql {sql:?} -> error {e}"),
+                None => eprintln!("sql {sql:?} -> database not open"),
+            }
+        }
         let rs = match result {
             Some(r) => match r {
                 Ok(rs) => rs,

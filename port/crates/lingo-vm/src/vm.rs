@@ -463,11 +463,19 @@ impl Vm {
                     return Ok(Value::Int(l.borrow().len() as i64));
                 }
                 let key = Value::sym(name);
-                l.borrow()
+                let found = l
+                    .borrow()
                     .iter()
                     .find(|(k, _)| k.lingo_eq(&key))
-                    .map(|(_, v)| v.clone())
-                    .unwrap_or_default()
+                    .map(|(_, v)| v.clone());
+                match found {
+                    Some(v) => v,
+                    // `pl.ilk` is #propList unless the list has an #ilk.
+                    // Regression: Db.Comp checks `ls.ilk = #propList` and
+                    // showed "no content" for every companion note.
+                    None if lname == "ilk" => Value::sym("propList"),
+                    None => Value::Void,
+                }
             }
             Value::Object(o) => match instance_prop(o, name) {
                 Some(v) => v,

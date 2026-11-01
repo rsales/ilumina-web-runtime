@@ -854,8 +854,18 @@ fn bible_book_tree_inner() {
     if let Some(cl) = vm.call_log.take() {
         for l in cl
             .iter()
-            .filter(|l| !l.contains("exitFrame") && !l.contains("stepFrame"))
-            .take(80)
+            .filter(|l| {
+                !l.contains("exitFrame")
+                    && !l.contains("stepFrame")
+                    && !l.contains("CharToUpper")
+                    && !l.contains("Scroll")
+            })
+            .take(
+                std::env::var("ILUMINA_CALL_LOG_N")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(80),
+            )
         {
             eprintln!("link call {l}");
         }
@@ -866,6 +876,71 @@ fn bible_book_tree_inner() {
         .and_then(|s| s.labels.iter().rfind(|(f, _)| *f <= host.frame).cloned());
     eprintln!("link click on sprite {k} at ({x}, {y}): {log:?}; frames {frames:?}, label {label:?}, stop {stop:?}");
     eprintln!("unanswered: {:?}", host.missing.keys().collect::<Vec<_>>());
+    if std::env::var("ILUMINA_XTRA_SPRITES").is_ok() {
+        let mut ns: Vec<_> = host.sprites.keys().copied().collect();
+        ns.sort();
+        for k in ns {
+            let st = &host.sprites[&k];
+            let Some((l, m)) = st.member else { continue };
+            let Some(mi) = host.member_info(l, m) else {
+                continue;
+            };
+            if mi.kind == "xtra" || !st.xtra_props.is_empty() {
+                eprintln!(
+                    "xtra sprite {k} {l}:{m} {:?} loc {:?} {}x{} vis {} props {:?}",
+                    mi.name,
+                    st.loc,
+                    st.width,
+                    st.height,
+                    st.visible,
+                    st.xtra_props
+                        .iter()
+                        .map(|(k, v)| format!(
+                            "{k}={}",
+                            v.to_string().chars().take(60).collect::<String>()
+                        ))
+                        .collect::<Vec<_>>()
+                );
+                if let Some((_, data, first)) =
+                    host.cast_data.iter().find(|(lib, _, _)| *lib as i64 == l)
+                {
+                    let mv = rifx::Movie::parse(data).unwrap();
+                    let ms = rifx::cast::members_from(&mv, *first).unwrap();
+                    if let Some(mm) = ms.iter().flatten().find(|x| x.number as i64 == m) {
+                        let hex: String = mm
+                            .specific
+                            .iter()
+                            .take(64)
+                            .map(|b| format!("{b:02x}"))
+                            .collect();
+                        eprintln!(
+                            "  member {:?} xtra {:?} specific {} bytes: {hex}",
+                            mm.kind,
+                            mm.xtra,
+                            mm.specific.len()
+                        );
+                    }
+                }
+                if let Some(sc) = &st.score {
+                    eprintln!(
+                        "  score left {} top {} {}x{} ink {}",
+                        sc.left, sc.top, sc.width, sc.height, sc.ink
+                    );
+                }
+                if let Some(t) = host.trees.get(&k) {
+                    let r = &t.nodes[1];
+                    eprintln!("  tree: root {:?} expanded {} visible {} nodes {} selected {} settings {:?}", r.name, r.expanded, t.visible().len(), t.nodes.len(), t.selected, t.settings.keys().collect::<Vec<_>>());
+                    for id in t.visible().into_iter().take(4) {
+                        eprintln!(
+                            "    row {id} {:?} kids {}",
+                            t.nodes[id as usize].name,
+                            t.nodes[id as usize].children.len()
+                        );
+                    }
+                }
+            }
+        }
+    }
     if let Ok(out) = std::env::var("ILUMINA_RENDER_BIBLE_LINK") {
         render_png(&host, "Bible.dxr", Path::new(&out));
     }

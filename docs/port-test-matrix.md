@@ -50,11 +50,17 @@ the book tree, then the first verse reference of the introduction.
    `\up`, a baseline raise in the text style); `the stillDown` reports the
    release after 200 reads in one event (the step budget ran out while
    dragging); `hilite … of field` sets `member.selection`.
-6. ⏳ Open: the body text draws in Georgia where Boxedwine shows a sans
-   (Wine likely lacks Georgia: check on Windows); "O TíTULO" (Boxedwine
-   shows "TÍTULO"); the "Referência" panel says no content was found
-   (Boxedwine shows the notes of Gênesis 1.1); the passage pop-up draws
-   black; the tree's scroll bar.
+6. ✅ (2026-11-01) The "Referência" panel shows the notes of Gênesis 1.1,
+   as in Boxedwine: `pl.ilk` on a property list without an #ilk key is
+   #propList (Db.Comp tested `ls.ilk = #propList`; VM test). The passage
+   pop-up (a one-row TreeView) sits in its box: setting a TreeView
+   sprite's rect keeps the centre as its registration point (the Xtra is
+   known per member now). 1×1 spacer icons are not drawn. `ILUMINA_SQL_LOG`
+   prints each query with its row count and the first row's sizes.
+7. ⏳ Open: the body text in Georgia where Boxedwine shows a sans (Wine
+   likely lacks Georgia: check on Windows); "O TíTULO" (the IML small caps
+   uppercase ASCII only, so Windows may show the same); the Referência
+   pop-up's caption (OSMenu Xtra) is empty; the tree's scroll bar.
 
 ## M2 — interactive Home (started 2026-10-31)
 

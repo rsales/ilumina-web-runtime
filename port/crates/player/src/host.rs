@@ -634,6 +634,8 @@ pub struct PlayerHost {
     pub pass_event: Option<bool>,
     /// Director timeout objects (`timeout("name").new(period, #h, obj)`).
     pub timeouts: Vec<Timeout>,
+    /// The Xtra of each Xtra member (lower case: "treeview", "osmenu"…).
+    pub xtra_names: HashMap<(i64, i64), String>,
     /// TreeView Xtra sprites' trees, by channel.
     pub trees: HashMap<u16, crate::treeview::Tree>,
     /// `puppetSound` per channel (member or name; 0 = stopped).
@@ -761,6 +763,7 @@ impl PlayerHost {
             member_ranges: HashMap::new(),
             sounds: HashMap::new(),
             trees: HashMap::new(),
+            xtra_names: HashMap::new(),
             timeouts: Vec::new(),
             key: Default::default(),
             pass_event: None,
@@ -836,6 +839,10 @@ impl PlayerHost {
                 .flatten();
             let text = styled.as_ref().map(|t| t.text.clone());
             let file_name = m.linked_path();
+            if let Some(x) = &m.xtra {
+                self.xtra_names
+                    .insert((lib as i64, m.number as i64), x.to_ascii_lowercase());
+            }
             self.members.push(MemberInfo {
                 lib,
                 number: m.number,
@@ -1241,6 +1248,13 @@ impl PlayerHost {
         self.member_ranges.remove(&(lib, number));
     }
 
+    /// A TreeView sprite: its registration point is its centre.
+    pub fn centred_xtra(&self, st: &crate::stage::SpriteState) -> bool {
+        st.member
+            .and_then(|m| self.xtra_names.get(&m))
+            .is_some_and(|x| x == "treeview")
+    }
+
     /// Matte ink (8) takes the mouse only where the bitmap is drawn: not on
     /// its white (cleared) or fully transparent pixels. Other inks use the
     /// rectangle, as in Director. `at` is relative to the sprite's rect of
@@ -1326,8 +1340,7 @@ impl PlayerHost {
             // Regression: the Bible's book tree was drawn and hit-tested
             // half a sprite down and to the right.
             .or_else(|| {
-                self.trees
-                    .contains_key(&(n as u16))
+                self.centred_xtra(&st)
                     .then_some((st.width / 2, st.height / 2))
             })
             .unwrap_or((0, 0));
@@ -1417,6 +1430,10 @@ impl PlayerHost {
             .and_then(|s| s.member)
             .and_then(|(l, m)| self.member_info(l, m))
             .and_then(|m| m.bitmap);
+        let centred = self
+            .sprites
+            .get(&(n as u16))
+            .is_some_and(|s| self.centred_xtra(s));
         let st = self.sprites.entry(n as u16).or_default();
         match lname {
             // Moves and stretches the sprite (⏳ the reg point scales too).
@@ -1425,8 +1442,11 @@ impl PlayerHost {
                     st.stretched = true;
                     st.width = (r - l) as i64;
                     st.height = (b - t) as i64;
+                    // Regression: the Bible's passage pop-up (a TreeView)
+                    // was placed by its centre after `sprite.rect = …`.
                     let reg = bitmap
                         .map(|bm| scaled_reg(bm, st.width, st.height, true))
+                        .or(centred.then_some((st.width / 2, st.height / 2)))
                         .unwrap_or((0, 0));
                     st.loc = (*l as i64 + reg.0, *t as i64 + reg.1);
                 }
@@ -3612,6 +3632,32 @@ mod tests {
         assert_eq!(civil_from_unix_days(11_016), (2000, 2, 29));
         let (y, m, d) = system_today();
         assert!(y >= 2026 && (1..=12).contains(&m) && (1..=31).contains(&d));
+    }
+
+    #[test]
+    fn treeview_sprites_register_at_their_centre() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.xtra_names.insert((5, 131), "treeview".into());
+        host.sprites.insert(
+            58,
+            crate::stage::SpriteState {
+                member: Some((5, 131)),
+                visible: true,
+                ..Default::default()
+            },
+        );
+        let s = HostRef::Sprite(58);
+        host.set_prop(
+            &mut vm,
+            &s,
+            "rect",
+            &Value::Rect(559.0, 140.0, 824.0, 157.0),
+        )
+        .unwrap();
+        assert_eq!(host.sprites[&58].loc, (691, 148));
+        let r = host.get_prop(&mut vm, &s, "rect").unwrap().unwrap();
+        assert_eq!(r.to_string(), "rect(559, 140, 824, 157)");
     }
 
     #[test]

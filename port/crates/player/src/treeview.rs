@@ -220,7 +220,10 @@ impl Tree {
             let n = &self.nodes[id as usize];
             let mut x = LEFT + self.depth(id) * INDENT;
             if let Some((lib, member, iw, ih)) = self.icon(self.icon_of(id)) {
-                if let Some(b) = icon_bitmap(lib, member) {
+                // A 1×1 icon is a spacer (the Bible's leaves): Boxedwine
+                // draws no dot there.
+                let shown = iw > 1 || ih > 1;
+                if let Some(b) = icon_bitmap(lib, member).filter(|_| shown) {
                     let s = rifx::score::Sprite {
                         number: 0,
                         kind: 1,

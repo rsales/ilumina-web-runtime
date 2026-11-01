@@ -889,4 +889,23 @@ mod tests {
             .message
             .contains("budget"));
     }
+
+    #[test]
+    fn prop_list_ilk_unless_a_key() {
+        let mut vm = Vm::new(Program::default());
+        let pl = Value::prop_list(vec![(Value::sym("text"), Value::str("x"))]);
+        let ilk = vm.get_property(&mut vm::NoHost, &pl, "ilk").unwrap();
+        assert!(ilk.lingo_eq(&Value::sym("propList")));
+        let own = Value::prop_list(vec![(Value::sym("ilk"), Value::Int(3))]);
+        assert_eq!(
+            vm.get_property(&mut vm::NoHost, &own, "ilk")
+                .unwrap()
+                .to_int(),
+            3
+        );
+        assert!(vm
+            .get_property(&mut vm::NoHost, &pl, "other")
+            .unwrap()
+            .is_void());
+    }
 }
