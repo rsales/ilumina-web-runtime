@@ -233,8 +233,7 @@ Slices, each with its own check:
    - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
    - ⏳ Registration and prefs are not kept between page loads (the file
      overlay lives in memory).
-5. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
-   page; `go to movie` loads another module.
+   - ⏳ Keyboard events from the page.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
 
 ## M1 — static Home (started 2026-10-30, done 2026-10-31)
