@@ -302,7 +302,7 @@ impl Vfs {
     /// skipped). Returns the number of lines applied.
     pub fn import_state(&mut self, text: &str) -> usize {
         let unhex = |h: &str| -> Option<Vec<u8>> {
-            if h.len() % 2 != 0 {
+            if h.len() & 1 != 0 {
                 return None;
             }
             (0..h.len())

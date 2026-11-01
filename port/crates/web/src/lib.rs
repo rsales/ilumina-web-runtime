@@ -62,6 +62,7 @@ pub struct App {
 enum Ev {
     Step(i64),
     Mouse(player::stage::Mouse),
+    Key(player::stage::Key),
     /// `go to movie` (disc path).
     Movie(String),
 }
@@ -322,6 +323,7 @@ impl App {
                     Ev::Mouse(m) => {
                         player::stage::mouse(&mut vm, &mut host, *m).map_err(|e| e.message)
                     }
+                    Ev::Key(k) => player::stage::key(&mut vm, &mut host, k).map_err(|e| e.message),
                     Ev::Movie(m) => {
                         current = m.clone();
                         self.enter_movie(&mut vm, &mut host, m).map(|_| ())
@@ -428,6 +430,7 @@ impl App {
         let mut r = match ev {
             Ev::Step(ms) => player::stage::step(&mut vm, &mut host, ms).map_err(|e| e.message),
             Ev::Mouse(m) => player::stage::mouse(&mut vm, &mut host, m).map_err(|e| e.message),
+            Ev::Key(k) => player::stage::key(&mut vm, &mut host, &k).map_err(|e| e.message),
             Ev::Movie(_) => Ok(()),
         };
         // `go to movie`: follow it now (recorded, so replays do the same).
@@ -485,6 +488,11 @@ impl App {
     /// A mouse event at stage coordinates.
     pub fn play_mouse(&mut self, m: player::stage::Mouse) -> Result<Step, String> {
         self.event(Ev::Mouse(m))
+    }
+
+    /// A key from the page (recorded and replayed like the mouse).
+    pub fn play_key(&mut self, k: player::stage::Key) -> Result<Step, String> {
+        self.event(Ev::Key(k))
     }
 
     /// The page's answer to the waiting dialog (see
@@ -944,8 +952,34 @@ pub extern "C" fn state() -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn set_state(ptr: *const u8, len: usize) -> i32 {
     let s = str_arg(ptr, len);
-    APP.with(|a| a.borrow_mut().set_state(&s));
+    APP.with(|a| a.borrow_mut().set_state(s));
     0
+}
+
+/// A key: `down` 1/0, the Mac key code, modifiers (bits: 1 shift,
+/// 2 option, 4 command, 8 control) and Director's key character (UTF-8).
+/// Result codes as `play_step`.
+///
+/// # Safety
+/// `ptr`/`len` must be valid UTF-8 in linear memory.
+#[no_mangle]
+pub unsafe extern "C" fn play_key(
+    down: i32,
+    code: i32,
+    mods: i32,
+    ptr: *const u8,
+    len: usize,
+) -> i32 {
+    let k = player::stage::Key {
+        down: down != 0,
+        key: str_arg(ptr, len).to_string(),
+        code: code as i64,
+        shift: mods & 1 != 0,
+        option: mods & 2 != 0,
+        command: mods & 4 != 0,
+        control: mods & 8 != 0,
+    };
+    step_code(APP.with(|a| a.borrow_mut().play_key(k)))
 }
 
 /// The disc path of the movie on the stage (in the result buffer).
@@ -1008,7 +1042,10 @@ mod tests {
     #[test]
     fn folder_lookup_ignores_case() {
         let mut files = HashMap::new();
-        files.insert("cd1/Program/Files/HOCode.cxt".to_string(), Rc::from(vec![1u8]));
+        files.insert(
+            "cd1/Program/Files/HOCode.cxt".to_string(),
+            Rc::from(vec![1u8]),
+        );
         let f = Folder {
             files: &files,
             dir: "cd1/Program/Files",

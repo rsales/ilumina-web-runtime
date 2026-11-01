@@ -397,6 +397,57 @@ pub fn mouse(vm: &mut Vm, host: &mut PlayerHost, ev: Mouse) -> Result<(), LingoE
     Ok(())
 }
 
+/// A key from the page. `key` is Director's character (`\u{8}` backspace,
+/// `\r` return, `\t` tab, 28–31 arrows); `code` the Mac key code.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Key {
+    pub down: bool,
+    pub key: String,
+    pub code: i64,
+    pub shift: bool,
+    pub option: bool,
+    pub command: bool,
+    pub control: bool,
+}
+
+/// A key event: `keyDown`/`keyUp` to the sprite with the keyboard focus
+/// (its behaviors), else the frame script, else the movie scripts. An
+/// editable field with the focus then gets the typed key unless a handler
+/// took it without `pass` (or called `dontPassEvent`/`stopEvent`).
+// Regression: the page sent no keys (search fields could not be typed in).
+pub fn key(vm: &mut Vm, host: &mut PlayerHost, k: &Key) -> Result<(), LingoError> {
+    host.key = k.clone();
+    host.pass_event = None;
+    let msg = if k.down { "keyDown" } else { "keyUp" };
+    let focus = host
+        .settings
+        .get("keyboardfocussprite")
+        .map(|v| v.to_int())
+        .filter(|&n| n > 0 && host.sprites.contains_key(&(n as u16)))
+        .unwrap_or(0) as u16;
+    let mut handled = focus > 0 && send_to_sprite(vm, host, focus, msg, &[])?.is_some();
+    if !handled {
+        if let Some(Value::Object(o)) = host.frame_script.clone() {
+            if vm.has_method(&o, msg) {
+                vm.call_method(host, msg, vec![Value::Object(o)])?;
+                handled = true;
+            }
+        }
+    }
+    if !handled && vm.program.movie_handler(msg).is_some() {
+        vm.call(host, msg, vec![])?;
+        handled = true;
+    }
+    let typed = match host.pass_event {
+        Some(pass) => pass,
+        None => !handled,
+    };
+    if k.down && typed && focus > 0 {
+        host.type_into_sprite(focus, &k.key);
+    }
+    Ok(())
+}
+
 /// A frame event (`prepareFrame`, `enterFrame`, `exitFrame`): every
 /// sprite's behaviors, then the frame script, else the movie scripts.
 pub fn frame_event(vm: &mut Vm, host: &mut PlayerHost, msg: &str) -> Result<(), LingoError> {

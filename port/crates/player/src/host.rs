@@ -37,6 +37,8 @@ pub struct MemberInfo {
 /// exclusive), property, value.
 pub type ChunkStyle = (usize, usize, String, Value);
 
+pub type SharedBitmap = std::rc::Rc<director::Bitmap>;
+
 /// A timeout object: named, and running once `new` gave it a period.
 #[derive(Clone, Debug, Default)]
 pub struct Timeout {
@@ -458,6 +460,18 @@ pub struct PlayerHost {
     /// (lib, number) → (char range, property, value), in order. Cleared
     /// when the text is replaced.
     pub member_ranges: HashMap<(i64, i64), Vec<ChunkStyle>>,
+    /// Each cast library's file (shared bytes) and first member number,
+    /// for decoding bitmaps on demand (hit testing).
+    pub cast_data: Vec<(u16, std::rc::Rc<[u8]>, u32)>,
+    /// Decoded cast bitmaps by (lib, member) (`None` = not a bitmap).
+    pub bitmaps: std::cell::RefCell<HashMap<(i64, i64), Option<SharedBitmap>>>,
+    /// The projector's "System - Win" palette (8-bit bitmaps).
+    palette: std::cell::OnceCell<Option<rifx::bitmap::Palette>>,
+    /// The last key from the page (`the key`, `the keyCode`, modifiers).
+    pub key: crate::stage::Key,
+    /// `pass` (Some(true)) or `dontPassEvent`/`stopEvent` (Some(false))
+    /// called during the current event.
+    pub pass_event: Option<bool>,
     /// Director timeout objects (`timeout("name").new(period, #h, obj)`).
     pub timeouts: Vec<Timeout>,
     /// TreeView Xtra sprites' trees, by channel.
@@ -582,6 +596,11 @@ impl PlayerHost {
             sounds: HashMap::new(),
             trees: HashMap::new(),
             timeouts: Vec::new(),
+            key: Default::default(),
+            pass_event: None,
+            cast_data: Vec::new(),
+            bitmaps: Default::default(),
+            palette: Default::default(),
             mouse_down: false,
             click_on: 0,
             fonts: Box::new(crate::fonts::ApproxFonts),
@@ -991,12 +1010,117 @@ impl PlayerHost {
             let z = st.loc_z;
             if let Some(Value::Rect(l, t, r, b)) = self.sprite_prop(n as i64, "rect") {
                 let (x, y) = (p.0 as f64, p.1 as f64);
-                if l <= x && x < r && t <= y && y < b {
+                if l <= x
+                    && x < r
+                    && t <= y
+                    && y < b
+                    && self.opaque_at(n, (x - l, y - t), (r - l, b - t))
+                {
                     hits.push((z, n as i64));
                 }
             }
         }
         hits.into_iter().max().map(|(_, n)| n)
+    }
+
+    /// A typed key into sprite `n`'s field if it is editable (Lingo set
+    /// `editable`): printable characters and return are added at the end,
+    /// backspace removes the last one (⏳ caret and selection).
+    pub fn type_into_sprite(&mut self, n: u16, key: &str) {
+        let Some((lib, number)) = self.sprites.get(&n).and_then(|s| s.member) else {
+            return;
+        };
+        let Some(m) = self
+            .members
+            .iter_mut()
+            .find(|m| m.lib as i64 == lib && m.number as i64 == number)
+        else {
+            return;
+        };
+        let editable = m.style.iter().any(|(k, v)| k == "editable" && v.truthy());
+        if !editable || !matches!(m.kind.as_str(), "field" | "text") {
+            return;
+        }
+        let mut t = m.text.clone().unwrap_or_default();
+        match key {
+            "\u{8}" => {
+                t.pop();
+            }
+            "\r" => t.push('\r'),
+            k if k.chars().all(|c| !c.is_control()) => t.push_str(k),
+            _ => return,
+        }
+        m.text = Some(t);
+        self.member_ranges.remove(&(lib, number));
+    }
+
+    /// Matte ink (8) takes the mouse only where the bitmap is drawn: not on
+    /// its white (cleared) or fully transparent pixels. Other inks use the
+    /// rectangle, as in Director. `at` is relative to the sprite's rect of
+    /// size `size`. ⏳ Director's matte is the white connected to the edges;
+    /// the renderer clears all white, and this matches the renderer.
+    // Regression: overlapping matte sprites took clicks on their corners.
+    fn opaque_at(&self, n: u16, at: (f64, f64), size: (f64, f64)) -> bool {
+        let Some(st) = self.sprites.get(&n) else {
+            return true;
+        };
+        if st.ink != 8 {
+            return true;
+        }
+        let Some((lib, number)) = st.member else {
+            return true;
+        };
+        let Some(b) = self.member_bitmap(lib, number) else {
+            return true;
+        };
+        let x = ((at.0 * b.width as f64 / size.0.max(1.0)) as usize).min(b.width.saturating_sub(1));
+        let y =
+            ((at.1 * b.height as f64 / size.1.max(1.0)) as usize).min(b.height.saturating_sub(1));
+        match b.rgba.get((y * b.width + x) * 4..(y * b.width + x) * 4 + 4) {
+            Some(p) => p[3] > 0 && !(p[0] == 255 && p[1] == 255 && p[2] == 255),
+            None => true,
+        }
+    }
+
+    /// A bitmap member's pixels: linked media, else decoded from its cast.
+    pub fn member_bitmap(&self, lib: i64, number: i64) -> Option<std::rc::Rc<director::Bitmap>> {
+        if let Some(b) = self.bitmaps.borrow().get(&(lib, number)) {
+            return b.clone();
+        }
+        let b = self
+            .linked_image(lib, number)
+            .or_else(|| self.decode_cast_bitmap(lib, number).map(std::rc::Rc::new));
+        self.bitmaps.borrow_mut().insert((lib, number), b.clone());
+        b
+    }
+
+    fn decode_cast_bitmap(&self, lib: i64, number: i64) -> Option<director::Bitmap> {
+        use rifx::bitmap::{bitd_for, decode, BitmapInfo};
+        let (_, data, first) = self.cast_data.iter().find(|(l, _, _)| *l as i64 == lib)?;
+        let movie = rifx::Movie::parse(data).ok()?;
+        let members = rifx::cast::members_from(&movie, *first).ok()?;
+        let m = members
+            .iter()
+            .flatten()
+            .find(|m| m.number as i64 == number)?;
+        if m.kind != rifx::cast::MemberType::Bitmap {
+            return None;
+        }
+        let info = BitmapInfo::parse(&m.specific).ok()?;
+        let bitd = bitd_for(&movie, m.section)?.ok()?;
+        let palette = self.palette.get_or_init(|| {
+            self.vfs
+                .read_shared(&format!("{APP_DIR}iLumina.exe"))
+                .and_then(|exe| rifx::bitmap::system_win_palette(&exe))
+        });
+        let rgba = decode(&info, bitd, palette.as_ref()).ok()?;
+        Some(director::Bitmap {
+            width: info.width,
+            height: info.height,
+            rgba,
+            reg_x: info.reg_x,
+            reg_y: info.reg_y,
+        })
     }
 
     /// Get a sprite property (`sprite(n).prop`, `the prop of sprite n`).
@@ -1410,6 +1534,16 @@ impl lingo_vm::Host for PlayerHost {
                         });
                     Value::Int(inside as i64)
                 }
+            }
+            // Event passing: `pass` lets an editable field get the key;
+            // `dontPassEvent`/`stopEvent` keep it.
+            "pass" => {
+                self.pass_event = Some(true);
+                Value::Void
+            }
+            "dontpassevent" | "stopevent" => {
+                self.pass_event = Some(false);
+                Value::Void
             }
             // Sound channels: remembered, not played yet (⏳ WebAudio, M4).
             // Regression: Home's credits easter egg calls puppetSound.
@@ -2469,7 +2603,10 @@ impl PlayerHost {
                 (Value::sym("osLanguage"), Value::str("Portuguese")),
                 (Value::sym("productBuildVersion"), Value::str("9.0")),
             ]),
-            "shiftdown" | "optiondown" | "commanddown" | "controldown" => Value::Int(0),
+            "shiftdown" => Value::Int(self.key.shift as i64),
+            "optiondown" | "altdown" => Value::Int(self.key.option as i64),
+            "commanddown" => Value::Int(self.key.command as i64),
+            "controldown" => Value::Int(self.key.control as i64),
             "mousedown" | "stilldown" => Value::Int(self.mouse_down as i64),
             "clickon" => Value::Int(self.click_on as i64),
             "mousemember" => match self
@@ -2500,8 +2637,8 @@ impl PlayerHost {
             "safeplayer" => Value::Int(0),
             "searchcurrentfolder" => Value::Int(1),
             "lastevent" | "lastclick" | "lastkey" | "lastroll" => Value::Int(0),
-            "key" => Value::str(""),
-            "keycode" => Value::Int(0),
+            "key" => Value::str(self.key.key.clone()),
+            "keycode" => Value::Int(self.key.code),
             _ => return None,
         })
     }
@@ -2921,6 +3058,93 @@ mod tests {
         host.method(&mut vm, &r, "forget", &[]).unwrap();
         host.clock_ms += 1000;
         assert!(host.due_timeouts().is_empty());
+    }
+
+    #[test]
+    fn matte_sprites_take_the_mouse_only_where_drawn() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        // A 2×1 bitmap: white (cleared by matte), then black.
+        host.bitmaps.borrow_mut().insert(
+            (1, 1),
+            Some(std::rc::Rc::new(director::Bitmap {
+                width: 2,
+                height: 1,
+                rgba: vec![255, 255, 255, 255, 0, 0, 0, 255],
+                reg_x: 0,
+                reg_y: 0,
+            })),
+        );
+        host.sprites.insert(
+            5,
+            crate::stage::SpriteState {
+                member: Some((1, 1)),
+                width: 20,
+                height: 10,
+                visible: true,
+                ink: 8,
+                ..Default::default()
+            },
+        );
+        assert_eq!(host.sprite_under((5, 5), None), None);
+        assert_eq!(host.sprite_under((15, 5), None), Some(5));
+        // Copy ink: the whole rectangle.
+        host.sprites.get_mut(&5).unwrap().ink = 0;
+        assert_eq!(host.sprite_under((5, 5), None), Some(5));
+    }
+
+    #[test]
+    fn keys_reach_the_focused_editable_field() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "field".into(),
+            script: None,
+            bitmap: None,
+            text: Some("Gn".into()),
+            styled: None,
+            file_name: None,
+            style: vec![("editable".into(), Value::Int(1))],
+        });
+        host.sprites.insert(
+            4,
+            crate::stage::SpriteState {
+                member: Some((1, 1)),
+                visible: true,
+                ..Default::default()
+            },
+        );
+        host.settings
+            .insert("keyboardfocussprite".into(), Value::Int(4));
+        let k = |key: &str, code: i64| crate::stage::Key {
+            down: true,
+            key: key.into(),
+            code,
+            shift: true,
+            ..Default::default()
+        };
+        for (key, code) in [(" ", 49), ("1", 18), ("\u{8}", 51), ("2", 19)] {
+            crate::stage::key(&mut vm, &mut host, &k(key, code)).unwrap();
+        }
+        assert_eq!(
+            host.member_info(1, 1).unwrap().text.as_deref(),
+            Some("Gn 2")
+        );
+        assert_eq!(host.the_value("keycode").unwrap().to_int(), 19);
+        assert_eq!(host.the_value("key").unwrap().to_text(), "2");
+        assert_eq!(host.the_value("shiftdown").unwrap().to_int(), 1);
+        // `dontPassEvent` from a handler keeps the key out of the field.
+        host.call(&mut vm, "dontPassEvent", &[]).unwrap();
+        assert_eq!(host.pass_event, Some(false));
+        // Not editable: nothing typed.
+        host.members[0].style.clear();
+        crate::stage::key(&mut vm, &mut host, &k("x", 7)).unwrap();
+        assert_eq!(
+            host.member_info(1, 1).unwrap().text.as_deref(),
+            Some("Gn 2")
+        );
     }
 
     #[test]

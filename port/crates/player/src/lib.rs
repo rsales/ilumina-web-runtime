@@ -73,13 +73,15 @@ fn add_movie(
     host.movie_name = movie_file.to_string();
     host.members.clear();
     host.cast_libs.clear();
+    host.cast_data.clear();
+    host.bitmaps.borrow_mut().clear();
     host.score = None;
     let mut loaded = Vec::new();
     for (i, (name, file)) in casts.iter().enumerate() {
         let lib = i as u16 + 1;
         let bytes = host
             .vfs
-            .read(&format!("{dir}{file}"))
+            .read_shared(&format!("{dir}{file}"))
             .ok_or(format!("{file}: not found"))?;
         loaded.push((lib, name.clone(), bytes));
     }
@@ -109,6 +111,7 @@ fn add_movie(
             .collect();
         host.add_cast(&movie, *lib, name, &scripts, first_member)
             .map_err(|e| e.to_string())?;
+        host.cast_data.push((*lib, bytes.clone(), first_member));
         if *lib == 1 {
             host.score = rifx::score::Score::from_movie(&movie)
                 .map_err(|e| e.to_string())?
