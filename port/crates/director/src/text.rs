@@ -295,7 +295,7 @@ impl Canvas {
                 let st = text.runs.get(p.run).map(|r| &r.style).unwrap_or(&default);
                 let g = fonts.glyph(st, p.ch);
                 let gx = pen + (p.x.round() as i64) + g.xmin as i64;
-                let gy = baseline - (g.ymin as i64 + g.height as i64);
+                let gy = baseline - st.raise as i64 - (g.ymin as i64 + g.height as i64);
                 for row in 0..g.height {
                     let cy = gy + row as i64;
                     if cy < top || cy >= top + height {

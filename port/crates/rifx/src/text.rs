@@ -32,6 +32,8 @@ pub struct TextStyle {
     pub italic: bool,
     pub underline: bool,
     pub color: [u8; 3],
+    /// Pixels the baseline is raised (superscript; negative lowers).
+    pub raise: i16,
 }
 
 impl Default for TextStyle {
@@ -43,6 +45,7 @@ impl Default for TextStyle {
             italic: false,
             underline: false,
             color: [0, 0, 0],
+            raise: 0,
         }
     }
 }
@@ -489,6 +492,7 @@ pub fn parse_stxt(
                     italic: style & 2 != 0,
                     underline: style & 4 != 0,
                     color: [(cr >> 8) as u8, (cg >> 8) as u8, (cb >> 8) as u8],
+                    raise: 0,
                 },
             ));
         }

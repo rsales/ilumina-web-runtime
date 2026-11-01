@@ -74,6 +74,9 @@ pub fn system_today() -> (i64, i64, i64) {
     civil_from_unix_days(secs.div_euclid(86_400))
 }
 
+/// Reads of `the stillDown` in one event before it reports the release.
+pub const STILL_DOWN_POLLS: u32 = 200;
+
 /// The error a run ends with when the program calls `quit` or `halt`.
 pub const QUIT: &str = "the program quit";
 
@@ -192,9 +195,49 @@ pub fn html_to_text(html: &str) -> String {
 /// Text of an HTML string and its hyperlinks as Director's `hyperlinks`
 /// (1-based inclusive character ranges of each `<a>`, with its `href`).
 pub fn html_parse(html: &str) -> (String, Vec<(usize, usize, String)>) {
+    let (t, l, _) = html_styled(html, &rifx::text::TextStyle::default());
+    (t, l)
+}
+
+/// The value of attribute `name` in a tag (`face="Verdana"`), "" if none.
+fn attr_of(tag: &str, name: &str) -> String {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(i) = lower[from..].find(name).map(|i| i + from) {
+        let before = lower[..i].chars().last();
+        let rest = tag[i + name.len()..].trim_start();
+        if before.is_some_and(|c| c.is_whitespace()) {
+            if let Some(v) = rest.strip_prefix('=') {
+                let v = v.trim_start();
+                return match v.chars().next() {
+                    Some(q @ ('"' | '\'')) => v[1..].split(q).next().unwrap_or("").to_string(),
+                    _ => v
+                        .split(|c: char| c.is_whitespace() || c == '>')
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                };
+            }
+        }
+        from = i + name.len();
+    }
+    String::new()
+}
+
+/// [`html_parse`] with the styles of `<b>`, `<i>`, `<u>`, `<font face size
+/// color>` and headings as runs over `base`.
+// Regression: the Bible's book introductions lost their fonts and italics
+// (compared with Boxedwine).
+pub fn html_styled(
+    html: &str,
+    base: &rifx::text::TextStyle,
+) -> (String, Vec<(usize, usize, String)>, Vec<rifx::text::Run>) {
     let mut out = String::new();
     let mut links = Vec::new();
     let mut link_start: Option<(usize, String)> = None;
+    let mut stack: Vec<rifx::text::TextStyle> = Vec::new();
+    let mut cur = base.clone();
+    let mut changes: Vec<(usize, rifx::text::TextStyle)> = vec![(0, cur.clone())];
     let mut rest = html;
     while let Some(c) = rest.chars().next() {
         if c == '<' {
@@ -203,6 +246,59 @@ pub fn html_parse(html: &str) -> (String, Vec<(usize, usize, String)>) {
             let tag = raw.to_ascii_lowercase();
             let name = tag.split_whitespace().next().unwrap_or("");
             let len = out.chars().count();
+            let before = cur.clone();
+            match name {
+                "b" | "strong" | "i" | "em" | "u" | "font" | "h1" | "h2" | "h3" => {
+                    stack.push(cur.clone());
+                    match name {
+                        "b" | "strong" => cur.bold = true,
+                        "i" | "em" => cur.italic = true,
+                        "u" => cur.underline = true,
+                        "h1" | "h2" | "h3" => {
+                            cur.bold = true;
+                            cur.size = match name {
+                                "h1" => 24,
+                                "h2" => 18,
+                                _ => 14,
+                            };
+                        }
+                        _ => {
+                            let face = attr_of(raw, "face");
+                            if let Some(f) = face.split(',').next().filter(|f| !f.trim().is_empty())
+                            {
+                                cur.font = f.trim().to_string();
+                            }
+                            let size = attr_of(raw, "size");
+                            if let Ok(n) = size.trim_start_matches(['+', '-']).parse::<i64>() {
+                                // HTML sizes 1–7 (Director's mapping).
+                                let n = if size.starts_with('+') {
+                                    3 + n
+                                } else if size.starts_with('-') {
+                                    3 - n
+                                } else {
+                                    n
+                                };
+                                cur.size = [8, 10, 12, 14, 18, 24, 36][n.clamp(1, 7) as usize - 1];
+                            }
+                            let color = attr_of(raw, "color");
+                            if let Some(h) = color.strip_prefix('#') {
+                                if let Ok(v) = u32::from_str_radix(h, 16) {
+                                    cur.color = [(v >> 16) as u8, (v >> 8) as u8, v as u8];
+                                }
+                            }
+                        }
+                    }
+                }
+                "/b" | "/strong" | "/i" | "/em" | "/u" | "/font" | "/h1" | "/h2" | "/h3" => {
+                    if let Some(s) = stack.pop() {
+                        cur = s;
+                    }
+                }
+                _ => {}
+            }
+            if cur != before {
+                changes.push((len, cur.clone()));
+            }
             match name {
                 "a" => link_start = Some((len, href_of(raw))),
                 "/a" => {
@@ -279,7 +375,29 @@ pub fn html_parse(html: &str) -> (String, Vec<(usize, usize, String)>) {
     for l in &mut links {
         l.1 = l.1.min(n);
     }
-    (text, links)
+    let mut runs: Vec<rifx::text::Run> = Vec::new();
+    for (i, (at, st)) in changes.iter().enumerate() {
+        let end = changes.get(i + 1).map_or(n, |c| c.0).min(n);
+        let start = (*at).min(n);
+        if start < end {
+            match runs.last_mut() {
+                Some(r) if r.style == *st && r.end == start => r.end = end,
+                _ => runs.push(rifx::text::Run {
+                    start,
+                    end,
+                    style: st.clone(),
+                }),
+            }
+        }
+    }
+    if runs.is_empty() {
+        runs.push(rifx::text::Run {
+            start: 0,
+            end: n,
+            style: base.clone(),
+        });
+    }
+    (text, links, runs)
 }
 
 /// The `href` of an `<a …>` tag (quoted or bare), "" without one.
@@ -524,6 +642,8 @@ pub struct PlayerHost {
     pub mouse_down: bool,
     /// Where the last press was (`the clickLoc`).
     pub click_loc: (i64, i64),
+    /// Reads of `the stillDown` since the last mouse event.
+    pub down_polls: std::cell::Cell<u32>,
     /// The sprite the last press went to (`the clickOn`).
     pub click_on: u16,
 }
@@ -637,6 +757,7 @@ impl PlayerHost {
             mouse: (-1, -1),
             mouse_over: 0,
             click_loc: (0, 0),
+            down_polls: Default::default(),
             member_ranges: HashMap::new(),
             sounds: HashMap::new(),
             trees: HashMap::new(),
@@ -2004,6 +2125,25 @@ impl lingo_vm::Host for PlayerHost {
                 }
             }
         }
+        // `hilite char a to b of field x`: the selection (⏳ drawn).
+        // Regression: the Bible's verse search hilites a found word.
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("hilite") {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    let sel = Value::list(vec![
+                        Value::Int((arg(args, 0).to_int() - 1).max(0)),
+                        Value::Int(arg(args, 1).to_int().max(arg(args, 0).to_int())),
+                    ]);
+                    m.style.retain(|(k, _)| k != "selection");
+                    m.style.push(("selection".into(), sel));
+                    return Ok(Some(Value::Void));
+                }
+            }
+        }
         // `member.line[3]` (getPropRef) and `member.line[3]` read as text.
         if let HostRef::Member { lib, number } = target {
             let lname = name.to_ascii_lowercase();
@@ -2233,9 +2373,12 @@ impl lingo_vm::Host for PlayerHost {
                     }
                     // No selection made (⏳ selecting with the mouse).
                     // Regression: the Bible's hyperlink behavior reads it.
-                    ("selection", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
-                        Value::list(vec![Value::Int(0), Value::Int(0)])
-                    }
+                    ("selection", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => m
+                        .style
+                        .iter()
+                        .find(|(k, _)| k == "selection")
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_else(|| Value::list(vec![Value::Int(0), Value::Int(0)])),
                     // No links set: none (⏳ links authored in XMED).
                     ("hyperlinks", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
                         Value::list(vec![])
@@ -2448,6 +2591,31 @@ impl lingo_vm::Host for PlayerHost {
                             ),
                             _ => return Ok(false),
                         };
+                        // Styled HTML (fonts, bold, italics) over the
+                        // member's authored style; plain HTML keeps the
+                        // authored style as before.
+                        // Styled HTML starts from Director's HTML default
+                        // (Arial 12, plain), not the member's first run.
+                        // Regression: the Bible's introductions came out all
+                        // bold serif (the placeholder's style).
+                        if let Some(h) = &html {
+                            let base = rifx::text::TextStyle::default();
+                            let (t, _, runs) = html_styled(h, &base);
+                            let plain = runs.len() == 1 && runs[0].style == base;
+                            if !plain && t == text {
+                                let paragraphs = m
+                                    .styled
+                                    .as_ref()
+                                    .and_then(|s| s.paragraphs.first())
+                                    .map(|&(_, a)| vec![(0, a)])
+                                    .unwrap_or_default();
+                                m.styled = Some(rifx::text::StyledText {
+                                    text: t,
+                                    runs,
+                                    paragraphs,
+                                });
+                            }
+                        }
                         m.text = Some(text);
                         m.style.retain(|(k, _)| {
                             !matches!(k.as_str(), "html" | "hyperlinks" | "hyperlinktargets")
@@ -2811,7 +2979,15 @@ impl PlayerHost {
             "optiondown" | "altdown" => Value::Int(self.key.option as i64),
             "commanddown" => Value::Int(self.key.command as i64),
             "controldown" => Value::Int(self.key.control as i64),
-            "mousedown" | "stilldown" => Value::Int(self.mouse_down as i64),
+            // A handler that waits for the release (`repeat while the
+            // stillDown`) gets it after a while: the page sends the release
+            // as a separate event, after the handler returns. Regression:
+            // dragging the Bible's scroll bars hit the step budget.
+            "mousedown" | "stilldown" => {
+                let n = self.down_polls.get() + 1;
+                self.down_polls.set(n);
+                Value::Int((self.mouse_down && n <= STILL_DOWN_POLLS) as i64)
+            }
             // Regression: Encyclopedia polls `the mouseUp` (not implemented).
             "mouseup" => Value::Int(!self.mouse_down as i64),
             // The page has one button. Regression: the Bible's hyperlink
@@ -3212,6 +3388,11 @@ mod tests {
         );
         let sel = host.get_prop(&mut vm, &m, "selection").unwrap().unwrap();
         assert_eq!(sel.to_string(), "[0, 0]");
+        host.method(&mut vm, &m, "hilite", &[Value::Int(2), Value::Int(4)])
+            .unwrap()
+            .unwrap();
+        let sel = host.get_prop(&mut vm, &m, "selection").unwrap().unwrap();
+        assert_eq!(sel.to_string(), "[1, 4]");
         let none = host.get_prop(&mut vm, &m, "hyperlinks").unwrap().unwrap();
         assert_eq!(none.to_string(), "[]");
         host.set_prop(
@@ -3395,6 +3576,13 @@ mod tests {
         assert_eq!(host.the_value("shiftdown").unwrap().to_int(), 1);
         assert_eq!(host.the_value("mouseup").unwrap().to_int(), 1);
         assert_eq!(host.the_value("rightmousedown").unwrap().to_int(), 0);
+        host.mouse_down = true;
+        host.down_polls.set(0);
+        let polls: Vec<i64> = (0..STILL_DOWN_POLLS + 1)
+            .map(|_| host.the_value("stilldown").unwrap().to_int())
+            .collect();
+        assert_eq!((polls[0], polls[STILL_DOWN_POLLS as usize]), (1, 0));
+        host.mouse_down = false;
         crate::stage::mouse(&mut vm, &mut host, crate::stage::Mouse::Down(7, 8)).unwrap();
         assert_eq!(
             host.the_value("clickloc").unwrap().to_string(),

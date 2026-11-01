@@ -38,9 +38,23 @@ the book tree, then the first verse reference of the introduction.
    `hyperlinkClicked` on mouseUp over a link; `pointToWord`/`Line`/`Item`/
    `Paragraph`, `the clickLoc`, `the rightMouseDown`, `member.selection`,
    `member.name =`, field `border`/`margin` defaults.
-5. ⏳ Verse numbers as superscript; the "Referência" panel says no content
-   was found (to check against Wine); the translation pop-up draws black;
-   ⏳ the page (owner).
+5. Owner's comparison with Boxedwine (2026-11-01, 34872be): the page
+   shows the tree, the introduction and Gênesis 1 like the native run.
+   Differences fixed (each with a test): the tree's named root row
+   ("LIVROS BÍBLICOS", children indented) and row height (font line, the
+   spacing does not add); "LIVROS BêBLICOS" (a Mac Roman literal tied with
+   the Windows reading: a letter whose case differs from both neighbours
+   now counts against a decoding); HTML styles (`<b>`, `<i>`, `<u>`,
+   `<font face size color>`, headings) over Director's HTML default instead
+   of the member's first run; RTF `\deff`, superscript/subscript (`\super`,
+   `\up`, a baseline raise in the text style); `the stillDown` reports the
+   release after 200 reads in one event (the step budget ran out while
+   dragging); `hilite … of field` sets `member.selection`.
+6. ⏳ Open: the body text draws in Georgia where Boxedwine shows a sans
+   (Wine likely lacks Georgia: check on Windows); "O TíTULO" (Boxedwine
+   shows "TÍTULO"); the "Referência" panel says no content was found
+   (Boxedwine shows the notes of Gênesis 1.1); the passage pop-up draws
+   black; the tree's scroll bar.
 
 ## M2 — interactive Home (started 2026-10-31)
 

@@ -246,7 +246,32 @@ pub fn script_string(b: &[u8]) -> String {
     // Regression: "ATIVA\x82\xccO" (Mac: "ATIVAÇÃO") has a byte ≥ 0xC0 and
     // was read as Windows-1252 ("ATIVA‚ÌO").
     const PT: &str = "áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ";
-    let score = |t: &str| t.chars().filter(|c| PT.contains(*c)).count();
+    // A letter whose case differs from both neighbours ("BêBLICOS") counts
+    // against its decoding. Regression: "LIVROS BÍBLICOS" (Mac) tied with
+    // the Windows reading and came out as "LIVROS BêBLICOS".
+    let score = |t: &str| {
+        let cs: Vec<char> = t.chars().collect();
+        let mut s = 0i64;
+        for (i, &c) in cs.iter().enumerate() {
+            if !PT.contains(c) {
+                continue;
+            }
+            s += 2;
+            let prev = i
+                .checked_sub(1)
+                .and_then(|j| cs.get(j))
+                .filter(|p| p.is_alphabetic());
+            let next = cs.get(i + 1).filter(|n| n.is_alphabetic());
+            if let (Some(p), Some(n)) = (prev, next) {
+                let odd = (p.is_uppercase() && n.is_uppercase() && c.is_lowercase())
+                    || (p.is_lowercase() && n.is_lowercase() && c.is_uppercase());
+                if odd {
+                    s -= 3;
+                }
+            }
+        }
+        s
+    };
     let (mac, win) = (crate::text::mac_roman(b), crate::text::cp1252(b));
     if score(&mac) > score(&win) {
         mac
@@ -271,6 +296,7 @@ mod script_string_tests {
         );
         assert_eq!(script_string(b"plain"), "plain");
         assert_eq!(script_string(b"ATIVA\x82\xccO"), "ATIVAÇÃO");
+        assert_eq!(script_string(b"LIVROS B\xeaBLICOS"), "LIVROS BÍBLICOS");
         assert_eq!(
             script_string(b"DIGITE O SEU C\xeeDIGO"),
             "DIGITE O SEU CÓDIGO"

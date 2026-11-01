@@ -650,6 +650,15 @@ fn click_into_module(vm: &mut Vm, host: &mut PlayerHost, x: i64, y: i64) -> Stri
             for (k, v) in keys {
                 eprintln!("  set {k} {v:?}");
             }
+            let r = &t.nodes[1];
+            eprintln!(
+                "  root {:?} expanded {} icons {:?} font {} kids {}",
+                r.name,
+                r.expanded,
+                r.icons,
+                r.font,
+                r.children.len()
+            );
             for id in t.visible().into_iter().take(6) {
                 let nd = &t.nodes[id as usize];
                 eprintln!(
@@ -702,10 +711,10 @@ fn bible_book_tree_inner() {
     if let Ok(out) = std::env::var("ILUMINA_RENDER_BIBLE") {
         render_png(&host, "Bible.dxr", Path::new(&out));
     }
-    // The first row's text (the sprite's loc is its centre).
+    // The second row (under the named root; the sprite's loc is its centre).
     let (x, y) = (
         st.loc.0 - st.width / 2 + 40,
-        st.loc.1 - st.height / 2 + rh / 2,
+        st.loc.1 - st.height / 2 + rh + rh / 2,
     );
     let mut log = Vec::new();
     for ev in [Mouse::Move(x, y), Mouse::Down(x, y), Mouse::Up(x, y)] {

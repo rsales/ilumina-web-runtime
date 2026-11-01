@@ -31,6 +31,8 @@ pub fn parse(rtf: &str) -> StyledText {
     let mut name = String::new();
     let mut rgb = [0u8; 3];
     let mut uc_skip = 0usize;
+    let mut deff: Option<i64> = None;
+    let mut base_size: u16 = TextStyle::default().size;
     let chars: Vec<char> = rtf.chars().collect();
     let mut i = 0;
     let push = |out: &mut String, runs: &mut Vec<Run>, st: &State, c: char| {
@@ -65,6 +67,14 @@ pub fn parse(rtf: &str) -> StyledText {
                     st = s;
                 }
                 if was_skip && !st.skip {
+                    // The font table just closed: `\deffN` is the font
+                    // until a `\f` says otherwise. Regression: the Bible's
+                    // chapters drew in the default serif instead of Arial.
+                    if table == Some("fonttbl") {
+                        if let Some(f) = fonts.iter().find(|(n, _)| Some(*n) == deff) {
+                            st.style.font = f.1.clone();
+                        }
+                    }
                     table = None;
                 }
                 i += 1;
@@ -118,6 +128,7 @@ pub fn parse(rtf: &str) -> StyledText {
                 }
                 let on = num.is_none_or(|v| v != 0);
                 match word.as_str() {
+                    "deff" => deff = num,
                     "fonttbl" => {
                         st.skip = true;
                         table = Some("fonttbl");
@@ -143,7 +154,26 @@ pub fn parse(rtf: &str) -> StyledText {
                             st.style.font = f.1.clone();
                         }
                     }
-                    "fs" => st.style.size = (num.unwrap_or(24) / 2).clamp(1, 500) as u16,
+                    "fs" => {
+                        st.style.size = (num.unwrap_or(24) / 2).clamp(1, 500) as u16;
+                        base_size = st.style.size;
+                    }
+                    // Superscript (the Bible's verse numbers): smaller and
+                    // raised. Regression: verse numbers were full size.
+                    "super" => {
+                        st.style.size = (base_size * 2 / 3).max(1);
+                        st.style.raise = (base_size / 3) as i16;
+                    }
+                    "sub" => {
+                        st.style.size = (base_size * 2 / 3).max(1);
+                        st.style.raise = -((base_size / 6) as i16);
+                    }
+                    "nosupersub" => {
+                        st.style.size = base_size;
+                        st.style.raise = 0;
+                    }
+                    "up" => st.style.raise = (num.unwrap_or(6) / 2) as i16,
+                    "dn" => st.style.raise = -((num.unwrap_or(6) / 2) as i16),
                     "b" => st.style.bold = on,
                     "i" => st.style.italic = on,
                     "ul" => st.style.underline = on,
@@ -257,6 +287,29 @@ mod tests {
         assert_eq!(at(d).color, [0, 0, 255]);
         assert!(!at(d + 5).italic);
         assert_eq!(at(d + 5).color, [0, 0, 0]);
+    }
+
+    #[test]
+    fn superscript_verse_numbers() {
+        let st = parse(r"{\rtf1\fs24 {\super 1}No\super 2\nosupersub x}");
+        let at = |i: usize| {
+            &st.runs
+                .iter()
+                .find(|r| r.start <= i && i < r.end)
+                .unwrap()
+                .style
+        };
+        assert_eq!((at(0).size, at(0).raise), (8, 4));
+        assert_eq!((at(1).size, at(1).raise), (12, 0));
+        assert_eq!((at(3).size, at(3).raise), (8, 4));
+        assert_eq!((at(4).size, at(4).raise), (12, 0));
+    }
+
+    #[test]
+    fn default_font() {
+        let st = parse(r"{\rtf1\deff1{\fonttbl{\f0 Georgia;}{\f1 Arial;}}x\f0 y}");
+        assert_eq!(st.runs[0].style.font, "Arial");
+        assert_eq!(st.runs.last().unwrap().style.font, "Georgia");
     }
 
     #[test]

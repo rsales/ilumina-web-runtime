@@ -363,6 +363,7 @@ pub fn mouse(vm: &mut Vm, host: &mut PlayerHost, ev: Mouse) -> Result<(), LingoE
         Mouse::Move(x, y) | Mouse::Down(x, y) | Mouse::Up(x, y) => (x, y),
     };
     host.mouse = (x, y);
+    host.down_polls.set(0);
     if matches!(ev, Mouse::Down(..)) {
         host.click_loc = (x, y);
     }

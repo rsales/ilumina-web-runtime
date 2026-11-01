@@ -44,6 +44,8 @@ pub struct Tree {
     pub hover: i64,
     /// Pixels scrolled down.
     pub scroll: i64,
+    /// The row height last measured with the page's fonts (16 before).
+    pub row_px: std::cell::Cell<i64>,
 }
 
 /// Where a point falls in the tree: the node and whether it is on the
@@ -71,6 +73,7 @@ impl Default for Tree {
             selected: 0,
             hover: 0,
             scroll: 0,
+            row_px: std::cell::Cell::new(16),
         }
     }
 }
@@ -110,18 +113,31 @@ impl Tree {
         st
     }
 
-    /// Height of one row: the tallest font's line plus the spacing.
+    /// Height of one row: the tallest font's line. (`setSpacingXTV` does not
+    /// add to it: Boxedwine shows the Bible's 34 rows in 534 px with a
+    /// spacing of 8; ⏳ what the spacing does.)
     pub fn row_height(&self, fonts: &dyn director::text::Fonts) -> i64 {
         let mut h = 0.0f32;
         for i in 0..self.fonts.len() as i64 {
             let m = fonts.line(&self.font_style(i));
             h = h.max(m.ascent + m.descent);
         }
-        (h.ceil() as i64).max(1) + self.spacing
+        let px = (h.ceil() as i64).max(1) + 1;
+        self.row_px.set(px);
+        px
     }
 
+    /// Indent level: children of an unnamed root at 0; a named root is
+    /// itself at 0 and its children at 1.
     fn depth(&self, mut id: i64) -> i64 {
-        let mut d = 0;
+        let mut d = if self.nodes[ROOT as usize].name.is_empty() {
+            0
+        } else {
+            1
+        };
+        if id == ROOT {
+            return 0;
+        }
         while let Some(n) = self.node(id) {
             if n.parent <= ROOT {
                 break;
@@ -314,8 +330,19 @@ impl Tree {
                 }
             }
         }
+        // The root is a row of its own when named ("LIVROS BÍBLICOS"), its
+        // children shown when it is expanded. Regression: the Bible's tree
+        // lacked its root row (compared with Boxedwine).
+        let root = &self.nodes[ROOT as usize];
         let mut out = Vec::new();
-        walk(self, ROOT, &mut out);
+        if root.name.is_empty() {
+            walk(self, ROOT, &mut out);
+        } else {
+            out.push(ROOT);
+            if root.expanded {
+                walk(self, ROOT, &mut out);
+            }
+        }
         out
     }
 
@@ -467,14 +494,17 @@ impl Tree {
             "getnodelocation" => {
                 let row = self.visible().iter().position(|&v| v == n(0));
                 match row {
-                    Some(r) => Value::Str(format!("0 {}", r as i64 * self.spacing)),
+                    Some(r) => {
+                        Value::Str(format!("0 {}", r as i64 * self.row_px.get() - self.scroll))
+                    }
                     None => Value::Str("0 0".into()),
                 }
             }
             // "width height" of all shown rows (⏳ width).
-            "getcontentsize" => {
-                Value::Str(format!("0 {}", self.visible().len() as i64 * self.spacing))
-            }
+            "getcontentsize" => Value::Str(format!(
+                "0 {}",
+                self.visible().len() as i64 * self.row_px.get()
+            )),
             // Display settings: kept, drawn later.
             _ if base.starts_with("set") || base.starts_with("reset") => {
                 self.settings.insert(base.to_string(), args.to_vec());
@@ -528,11 +558,18 @@ mod tests {
         assert_eq!(call(&mut t, "getExpandedXTV", &[i(a)]).to_int(), 1);
         assert_eq!(t.visible(), vec![a, a1, b]);
         call(&mut t, "setSpacingXTV", &[i(20)]);
-        assert_eq!(call(&mut t, "getContentSizeXTV", &[]).to_text(), "0 60");
+        assert_eq!(call(&mut t, "getContentSizeXTV", &[]).to_text(), "0 48");
         assert_eq!(
             call(&mut t, "GetNodeLocationXTV", &[i(b)]).to_text(),
-            "0 40"
+            "0 32"
         );
+        // A named root is a row of its own, expanded to show its children.
+        call(&mut t, "setNameXTV", &[i(root), Value::str("LIVROS")]);
+        call(&mut t, "setExpandedXTV", &[i(root), i(1)]);
+        assert_eq!(t.visible(), vec![root, a, a1, b]);
+        call(&mut t, "setExpandedXTV", &[i(root), i(0)]);
+        assert_eq!(t.visible(), vec![root]);
+        call(&mut t, "setNameXTV", &[i(root), Value::str("")]);
         call(&mut t, "removeAllChildrenXTV", &[i(root)]);
         assert!(t.visible().is_empty());
         let f = call(
