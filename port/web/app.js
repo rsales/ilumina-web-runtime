@@ -389,9 +389,12 @@ function showDialog(text) {
 /** The text field to focus again after a live edit redraws the dialog. */
 let refocus = 0;
 
-/** `set` lines for the text fields the user changed. */
+/** `set` lines for the fields the user changed. A radio button that was
+ * turned off by choosing another sends nothing: the Xtra reports only the
+ * chosen one (regression: the last itemChanged named the wrong choice). */
 function changes(fields) {
   return fields.filter((f) => (f.kind === "toggle" ? f.el.checked : f.el.value) !== f.initial)
+    .filter((f) => !(f.kind === "toggle" && f.el.type === "radio" && !f.el.checked))
     .map((f) => f.kind === "toggle"
       ? `set\t${f.pos}\t${f.el.checked ? 1 : 0}`
       : `set\t${f.pos}\t${f.el.value.replaceAll("\n", "\r")}`);

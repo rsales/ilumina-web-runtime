@@ -861,17 +861,24 @@ fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error:
             }
         }
     }
-    // Two seconds of frames at 15 fps: Home shows the activation dialog
-    // from its frame loop, not from the startup.
+    // Frames at 15 fps (ILUMINA_PLAY_SECONDS, default 10): Home shows the
+    // activation dialogs from its frame loop, not from the startup.
     // Regression: `play` stopped after the startup and never reached it.
+    let seconds: i64 = std::env::var("ILUMINA_PLAY_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
     if started {
-        for i in 0..30 {
+        for i in 0..seconds * 15 {
             if let Err(e) = player::stage::step(&mut vm, &mut host, 66) {
                 println!("frame step {i}: stopped: {}", mask(&e.to_string()));
                 break;
             }
         }
-        println!("after 2 s: frame {}", host.frame);
+        println!("after {seconds} s: frame {}", host.frame);
+        for a in &host.alerts {
+            println!("alert shown: {}", mask(a));
+        }
     }
     let fonts = fonts::HostFonts::new();
     let draws = host.draws();

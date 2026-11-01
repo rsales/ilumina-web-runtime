@@ -295,6 +295,12 @@ Slices, each with its own check:
      the page now passes its date and `xtask play` the system date. Test.
      The trial logic itself is not inspected or changed (ADR 0005).
    - `the mouseUp` added (Encyclopedia). Test.
+   - Owner's `xtask play` with the dialog log (2026-11-01): registration
+     accepted; the activation dialog shows "Restam 15 dias"; the owner chose
+     "Possuo o meu Código…" but the dialog closed without the code step.
+     Cause: the answer set every radio button, so the last `itemChanged`
+     named "Não quero ativar agora" (the trial path). Fixed in the owner's
+     answer and in the page (only the chosen radio is reported). Tests.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 

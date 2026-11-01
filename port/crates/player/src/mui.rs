@@ -126,12 +126,14 @@ impl Owner {
             let t = shown(&items[k]);
             t.contains("digo de ativa") && t.contains("ativar agora")
         }) {
-            let mut out: Vec<DialogAction> = radios
-                .iter()
-                .map(|&k| DialogAction::SetValue(k + 1, if k == pick { "1" } else { "0" }.into()))
-                .collect();
-            out.push(DialogAction::Click(continue_button(items, false)?));
-            return Some(out);
+            // Only the chosen radio button: the Xtra clears the others and
+            // sends `itemChanged` for the one the user picked. Regression:
+            // setting every radio sent itemChanged for "Não quero ativar
+            // agora" last, so the program took the trial path.
+            return Some(vec![
+                DialogAction::SetValue(pick + 1, "1".into()),
+                DialogAction::Click(continue_button(items, false)?),
+            ]);
         }
         // The code field: a label asking for the activation code.
         let asks = items
@@ -504,10 +506,8 @@ mod tests {
         assert_eq!(
             o.answer("Ativação do iLúmina", &choose).unwrap(),
             vec![
-                DialogAction::SetValue(1, "0".into()),
                 DialogAction::SetValue(2, "1".into()),
-                DialogAction::SetValue(3, "0".into()),
-                DialogAction::Click(4),
+                DialogAction::Click(4)
             ]
         );
         // "Continuar" is disabled until the code is typed (regression).
@@ -540,7 +540,7 @@ mod tests {
         };
         assert_eq!(
             u.dialog("Ativação do iLúmina", &choose, 0).unwrap().len(),
-            4
+            2
         );
         assert_eq!(u.dialog("Ativação do iLúmina", &entry, 1).unwrap().len(), 2);
         assert_eq!(u.dialog("Ativação do iLúmina", &entry, 2), None);
