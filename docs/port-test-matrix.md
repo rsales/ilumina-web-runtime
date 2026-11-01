@@ -327,6 +327,13 @@ Slices, each with its own check:
      book panel empty until the TreeView draws). `textStyle`/`textFont`/
      `textSize` on members added (Bible). Test for the member props; the
      page fix by review. ⏳ owner.
+   - ✅ Owner's browser run (2026-11-01, d2404bb, incognito): registration
+     typed into the page's dialog, OK, then "DIGITE O SEU CÓDIGO DE
+     ATIVAÇÃO", the owner's code typed and accepted by the program; Home,
+     Bible, Multimídia and Encyclopedia then opened. ❌ Picking Home again
+     in the page asked for registration again (the new session started from
+     the files of the page load). Fixed: a new session keeps the files the
+     last one wrote. Web test.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 

@@ -234,6 +234,7 @@ impl App {
         drop(files);
         self.stage = Some(stage);
         self.movie = movie.to_string();
+        self.keep_files();
         self.run = None;
         self.start = None;
         self.log.clear();
@@ -254,6 +255,16 @@ impl App {
         match &self.run {
             Some((_, host)) => host.vfs.export_state(),
             None => self.saved_state.clone(),
+        }
+    }
+
+    /// A new session (another movie picked in the page) starts with the
+    /// files the ending one wrote, as the disk keeps them between runs.
+    // Regression: after activating, picking Home again in the page started
+    // from the files of the page load and asked for registration again.
+    fn keep_files(&mut self) {
+        if let Some((_, host)) = &self.run {
+            self.saved_state = host.vfs.export_state();
         }
     }
 
@@ -280,6 +291,7 @@ impl App {
     pub fn play(&mut self, movie: &str) -> Result<Play, String> {
         self.stage()?;
         if self.start.as_deref() != Some(movie) {
+            self.keep_files();
             self.start = Some(movie.to_string());
             self.log.clear();
             self.answers.clear();
@@ -1211,6 +1223,12 @@ mod tests {
                 app.answer("close");
                 let _ = app.play(movie).unwrap();
                 assert_eq!(app.run.as_ref().unwrap().1.today, (2027, 3, 4));
+                // A new session in the same page keeps what the last wrote.
+                app.load(movie).unwrap();
+                assert!(app.state().contains("C:\\kept.txt\t6869"));
+                app.answer("close");
+                let _ = app.play(movie).unwrap();
+                assert!(app.state().contains("C:\\kept.txt\t6869"));
             })
             .unwrap()
             .join()
