@@ -251,13 +251,42 @@ Slices, each with its own check:
      run (2026-11-01, a4fb143): no activation dialog with the owner's code;
      Home rollovers (Multimídia, Viagem no Tempo) work. Seen in the status
      line: `not implemented: handler #puppetSound` (sound is next).
-   - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
-   - ⏳ Registration and prefs are not kept between page loads (the file
-     overlay lives in memory). Next: keep the overlay the program writes in
-     browser storage, so an activated install stays activated, as on Windows.
-     The dialog itself is never skipped or removed (ADR 0005).
-   - ⏳ Keyboard events from the page.
-5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
+   - Hit testing (2026-11-01): matte-ink (8) sprites take the mouse only
+     on drawn pixels (cast bitmaps decoded on demand in the host, same
+     white-is-clear rule as the renderer; ⏳ Director's edge-connected
+     matte). Other inks use the rectangle, as in Director. Unit test.
+   - Files the program writes (2026-11-01): `Vfs::export_state`/
+     `import_state`; the page keeps them in sessionStorage (localStorage
+     with "lembrar"), next to the owner's data, and every run starts with
+     them, as a Windows install finds its files again. Nothing is reset
+     or altered; the dialogs are never skipped (ADR 0005). Native test
+     (state round trip) and web test (kept file survives a new session).
+     ⏳ owner: reload the page after activating.
+   - Keyboard (2026-11-01): `stage::key` (keyDown/keyUp to the focus
+     sprite, frame script, movie scripts; `pass`/`dontPassEvent`/
+     `stopEvent`; typing into an editable field, ⏳ caret/selection);
+     `the key`, `the keyCode`, modifiers. Page sends Mac key codes and
+     Director key characters while playing. Unit test. ⏳ owner.
+   - Performance (2026-11-01): disc bytes are shared across replays (the
+     page keeps fetched files as `Rc<[u8]>`), `.blb` files are read on the
+     first query that needs a Text field, BinaryIO reads 4 KB windows. The
+     startup reads 52 MB instead of 176 MB (native count); the web
+     play-loop test went from ~37 s to ~3 s. The page still fetches whole
+     files (the manifest hash checks whole files only).
+5. ⚠️ Gate: Home navigates to each module (2026-11-01, `home_modules`
+   disc test, a ratchet): a fresh Home per module, click in the side
+   navigation, `go to movie` followed, startup and a second of playback.
+   ✅ Bible (book tree: 66 nodes), Encyclopedia, TimeTravel, MediaCenter,
+   Extras (tree: 7 nodes), MyStudyCenter. Fixed on the way, each with a
+   unit test: `locVToLinePos`, member chunk refs (`member.line[n].color`,
+   chunks of chunks, `setProp(#line…)`), `sprite.updateControl`,
+   `sprite.quad`, `hexString`, member `hyperlinks`/chunk `hyperlink`/
+   `hyperlinkRange`/`hyperlinkState`, `pointToChar`/`pointInHyperlink`,
+   `#paragraph` chunks, `member.member`, `scrollTop`, `useHypertextStyles`,
+   `puppetSound` (remembered, silent until M4), timeouts, and the TreeView
+   Xtra model (`*XTV`: nodes, names, icons, fonts, user data; ⏳ drawing
+   and its mouse callbacks, M3). ⏳ Browser check by the owner; SSIM
+   against Wine screenshots.
 
 ## M1 — static Home (started 2026-10-30, done 2026-10-31)
 

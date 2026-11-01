@@ -204,3 +204,11 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - **Mui dialogs react while typing**: the activation wizard enables
   "Continuar" from `itemChanged`; a page that only sends edits with a click
   never enables it. Disabled items must also drop clicks.
+- **Walk every module in one disc test** (`home_modules`): each click into
+  a module surfaced the next missing call; one ratchet caught 12 gaps in a
+  session instead of one per browser round trip.
+- **TreeView Xtra ids are 0-based, with a default at 0**: Lingo treats a
+  font/icon id of 0 as "not added" and reads entries back as words.
+- **The manifest hash forces whole-file fetches in the page**: ranges
+  cannot be verified, so share the bytes across replays instead of
+  fetching less.

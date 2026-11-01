@@ -35,6 +35,15 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 gate, modules (2026-11-01):** the `home_modules` disc test clicks
+each side-navigation module from a fresh Home: all six start and play
+(Bible's book tree has 66 nodes). Also: keyboard events, matte hit
+testing, the program's files kept in browser storage, shared disc bytes
+and lazy `.blb` (52 MB read at startup, was 176). Owner to check in the
+browser: each module opens; reload after activating keeps the activation;
+typing works where the program allows it. Next: TreeView drawing and
+mouse callbacks (M3 Bible), sound (M4), SSIM against Wine.
+
 **Activation in the page (2026-11-01):** owner's run: trial path and side
 navigation work; typing the code left "Continuar" disabled. Fixed: live
 `itemChanged` from text fields, disabled items drop clicks, the page's owner

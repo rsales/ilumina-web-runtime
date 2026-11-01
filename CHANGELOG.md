@@ -7,6 +7,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Port: every Home module (Bíblia, Enciclopédia, Viagem no Tempo,
+  Multimídia, Extras, Estudo Pessoal) starts from the side navigation; the
+  TreeView Xtra model, timeouts, member text chunks and hyperlinks.
+- Port page: keyboard events; the program's written files (registration,
+  activation, prefs) kept in browser storage between page loads.
+### Changed
+- Port: disc files shared across replays and Valentina `.blb` files read on
+  demand (startup reads 52 MB instead of 176 MB).
 - Port page: dialog text edits reach the program while typing; the owner's
   saved data now also answer the activation steps with their own code.
 - Experiment branch `experiment/rust-director` (ADR 0008, which supersedes 0007
