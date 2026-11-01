@@ -301,6 +301,17 @@ fn home_managers_build_inner() {
             }
         }
     }
+    // ILUMINA_SPRITES=a,b,…: print sprites' run-time state (debugging).
+    if let Ok(list) = std::env::var("ILUMINA_SPRITES") {
+        for n in list.split(',').filter_map(|n| n.parse::<u16>().ok()) {
+            if let Some(st) = host.sprites.get(&n) {
+                eprintln!(
+                    "sprite {n}: member {:?} loc {:?} {}x{} visible {} stretched {} ink {}",
+                    st.member, st.loc, st.width, st.height, st.visible, st.stretched, st.ink
+                );
+            }
+        }
+    }
     if let Ok(out) = std::env::var("ILUMINA_RENDER") {
         render_png(&host, "Home.dxr", Path::new(&out));
     }

@@ -33,6 +33,46 @@ pub struct MemberInfo {
     pub style: Vec<(String, Value)>,
 }
 
+/// A bitmap's registration point as drawn: scaled with a stretched sprite
+/// (as the compositor draws it). `b` = (width, height, regX, regY, depth).
+// Regression: setting a stretched sprite's rect placed it with the
+// unscaled reg point, so Home's scroll-bar track started 47 px too high.
+fn scaled_reg(b: (i64, i64, i64, i64, i64), w: i64, h: i64, stretched: bool) -> (i64, i64) {
+    if !stretched || b.0 <= 0 || b.1 <= 0 {
+        return (b.2, b.3);
+    }
+    (
+        (b.2 as f64 * w as f64 / b.0 as f64).round() as i64,
+        (b.3 as f64 * h as f64 / b.1 as f64).round() as i64,
+    )
+}
+
+/// Underline characters `a..b` (0-based, end exclusive), splitting runs.
+fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
+    let mut out = Vec::new();
+    for r in runs.drain(..) {
+        let cuts = [
+            r.start,
+            a.clamp(r.start, r.end),
+            b.clamp(r.start, r.end),
+            r.end,
+        ];
+        for w in cuts.windows(2) {
+            if w[0] < w[1] {
+                let mut piece = r.clone();
+                piece.start = w[0];
+                piece.end = w[1];
+                piece.style.underline |= w[0] >= a && w[1] <= b;
+                out.push(piece);
+            }
+        }
+        if r.start == r.end {
+            out.push(r);
+        }
+    }
+    *runs = out;
+}
+
 /// A property of the first behavior instance that declares it.
 fn behavior_prop(instances: &[Value], name: &str) -> Option<Value> {
     instances.iter().find_map(|i| match i {
@@ -51,7 +91,15 @@ fn set_behavior_prop(instances: &[Value], name: &str, v: &Value) -> bool {
 /// Plain text of an HTML string as Director's text members show it: tags
 /// dropped, `<br>` and paragraph ends as `\r`, entities decoded.
 pub fn html_to_text(html: &str) -> String {
+    html_parse(html).0
+}
+
+/// Text of an HTML string and its hyperlinks as Director's `hyperlinks`
+/// (1-based inclusive character ranges of each `<a>`).
+pub fn html_parse(html: &str) -> (String, Vec<(usize, usize)>) {
     let mut out = String::new();
+    let mut links = Vec::new();
+    let mut link_start: Option<usize> = None;
     let mut rest = html;
     while let Some(c) = rest.chars().next() {
         if c == '<' {
@@ -60,6 +108,16 @@ pub fn html_to_text(html: &str) -> String {
                 .trim()
                 .to_ascii_lowercase();
             let name = tag.split_whitespace().next().unwrap_or("");
+            let len = out.chars().count();
+            match name {
+                "a" => link_start = Some(len),
+                "/a" => {
+                    if let Some(a) = link_start.take().filter(|&a| a < len) {
+                        links.push((a + 1, len));
+                    }
+                }
+                _ => {}
+            }
             if matches!(
                 name,
                 "br" | "br/" | "/p" | "/h1" | "/h2" | "/h3" | "/li" | "/tr"
@@ -114,7 +172,13 @@ pub fn html_to_text(html: &str) -> String {
             rest = &rest[c.len_utf8()..];
         }
     }
-    out.trim_end_matches('\r').to_string()
+    let text = out.trim_end_matches('\r').to_string();
+    let n = text.chars().count();
+    links.retain(|l| l.0 <= n);
+    for l in &mut links {
+        l.1 = l.1.min(n);
+    }
+    (text, links)
 }
 
 /// `&aacute;`-style entities for Latin-1 accented letters.
@@ -520,6 +584,13 @@ impl PlayerHost {
                     .as_ref()
                     .and_then(|s| s.runs.first().map(|r| r.style.clone()))
                     .unwrap_or_default();
+                // The authored alignment stays with the new text.
+                // Regression: Home's add-on list lost its right alignment.
+                let paragraphs = other
+                    .as_ref()
+                    .and_then(|s| s.paragraphs.first())
+                    .map(|&(_, a)| vec![(0, a)])
+                    .unwrap_or_default();
                 StyledText {
                     runs: vec![Run {
                         start: 0,
@@ -527,7 +598,7 @@ impl PlayerHost {
                         style,
                     }],
                     text,
-                    paragraphs: Vec::new(),
+                    paragraphs,
                 }
             }
         };
@@ -559,6 +630,18 @@ impl PlayerHost {
                 r.style.bold = has("bold");
                 r.style.italic = has("italic");
                 r.style.underline = has("underline");
+            }
+        }
+        // Hyperlinks are drawn underlined (Director's link style).
+        // Regression: the "aqui" link in Home's welcome text was plain.
+        if let Some(Value::List(l)) = get("hyperlinks") {
+            for link in l.borrow().iter() {
+                if let Value::List(r) = link {
+                    let r = r.borrow();
+                    if let (Some(a), Some(b)) = (r.first(), r.get(1)) {
+                        underline(&mut st.runs, a.to_int() as usize - 1, b.to_int() as usize);
+                    }
+                }
             }
         }
         Some(st)
@@ -629,7 +712,7 @@ impl PlayerHost {
             .member
             .and_then(|(l, m)| self.member_info(l, m))
             .and_then(|m| m.bitmap)
-            .map(|b| (b.2, b.3))
+            .map(|b| scaled_reg(b, st.width, st.height, st.stretched))
             .unwrap_or((0, 0));
         let (l, t) = (st.loc.0 - reg.0, st.loc.1 - reg.1);
         Some(match lname {
@@ -700,14 +783,12 @@ impl PlayerHost {
             .and_then(|s| s.member)
             .and_then(|(l, m)| self.member_info(l, m))
             .is_some_and(|m| matches!(m.kind.as_str(), "xtra" | "flash"));
-        let reg = self
+        let bitmap = self
             .sprites
             .get(&(n as u16))
             .and_then(|s| s.member)
             .and_then(|(l, m)| self.member_info(l, m))
-            .and_then(|m| m.bitmap)
-            .map(|b| (b.2, b.3))
-            .unwrap_or((0, 0));
+            .and_then(|m| m.bitmap);
         let st = self.sprites.entry(n as u16).or_default();
         match lname {
             // Moves and stretches the sprite (⏳ the reg point scales too).
@@ -716,6 +797,9 @@ impl PlayerHost {
                     st.stretched = true;
                     st.width = (r - l) as i64;
                     st.height = (b - t) as i64;
+                    let reg = bitmap
+                        .map(|bm| scaled_reg(bm, st.width, st.height, true))
+                        .unwrap_or((0, 0));
                     st.loc = (*l as i64 + reg.0, *t as i64 + reg.1);
                 }
                 _ => return false,
@@ -1407,7 +1491,7 @@ impl lingo_vm::Host for PlayerHost {
                     if matches!(m.kind.as_str(), "field" | "text") {
                         // `media` of a text member: its text and HTML (see get).
                         let (text, html) = match (lname.as_str(), value) {
-                            ("html", v) => (html_to_text(&v.to_text()), Some(v.to_text())),
+                            ("html", v) => (html_parse(&v.to_text()).0, Some(v.to_text())),
                             (_, v @ Value::PropList(_)) => (
                                 crate::mui::prop(v, "text").to_text(),
                                 Some(crate::mui::prop(v, "html"))
@@ -1417,8 +1501,17 @@ impl lingo_vm::Host for PlayerHost {
                             _ => return Ok(false),
                         };
                         m.text = Some(text);
-                        m.style.retain(|(k, _)| k != "html");
+                        m.style.retain(|(k, _)| k != "html" && k != "hyperlinks");
                         if let Some(h) = html {
+                            // `member.hyperlinks`: [[start, end], …]
+                            let links = html_parse(&h).1;
+                            let list = links
+                                .iter()
+                                .map(|&(a, b)| {
+                                    Value::list(vec![Value::Int(a as i64), Value::Int(b as i64)])
+                                })
+                                .collect();
+                            m.style.push(("hyperlinks".into(), Value::list(list)));
                             m.style.push(("html".into(), Value::Str(h)));
                         }
                         return Ok(true);
@@ -1938,5 +2031,32 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(c.to_int(), 4);
+    }
+
+    #[test]
+    fn stretched_sprite_rect_round_trips() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "bitmap".into(),
+            script: None,
+            bitmap: Some((9, 9, 4, 4, 16)),
+            text: None,
+            styled: None,
+            file_name: None,
+            style: Vec::new(),
+        });
+        let sp = HostRef::Sprite(4);
+        let m = Value::Host(HostRef::Member { lib: 1, number: 1 });
+        assert!(host.set_prop(&mut vm, &sp, "member", &m).unwrap());
+        let r = Value::Rect(10.0, 100.0, 19.0, 206.0);
+        assert!(host.set_prop(&mut vm, &sp, "rect", &r).unwrap());
+        let got = host.get_prop(&mut vm, &sp, "rect").unwrap().unwrap();
+        assert_eq!(got.to_string(), "rect(10, 100, 19, 206)");
+        // Reg point scaled by 106/9: loc is 47 px below the top.
+        assert_eq!(host.sprites[&4].loc, (14, 147));
     }
 }

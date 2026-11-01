@@ -162,9 +162,13 @@ Slices, each with its own check:
        bold grey, the add-on list): XMED now keeps a zero-length run.
      - Uncompressed 16/32-bit bitmaps are interleaved, not planar: the
        scroll bar and the minimize/close icons were coloured noise.
-   - ⚠️ Still different: the welcome text wraps (font metrics; Wine has no
-     Verdana either), the `<a>` link is not underlined, scroll-bar track
-     length, and the module slideshow/rollover (frame loop + mouse).
+   - ✅ Second comparison (owner's run vs Boxedwine): fixed the scroll-bar
+     track (a stretched sprite's rect used the unscaled reg point), the
+     add-on list's right alignment (lost when Lingo replaced the text), and
+     hyperlinks (`member.hyperlinks` from `<a>`, drawn underlined).
+   - ⚠️ Still different: the welcome text wraps to two lines (font metrics;
+     the Wine reference substitutes Verdana), and the module
+     slideshow/rollover (frame loop + mouse).
    - The startup reads 58 disc files, 176 MB (every database opened whole,
      BLOBs included). For the browser: open Valentina BLOBs lazily.
    - Next: wire `player` into the browser page (fetch the files the run
