@@ -851,11 +851,27 @@ fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error:
         }
         t
     };
+    let mut started = true;
     for (step, r) in player::stage::start_movie(&mut vm, &mut host) {
         match r {
             Ok(()) => println!("{step}: OK"),
-            Err(e) => println!("{step}: stopped: {}", mask(&e.to_string())),
+            Err(e) => {
+                started = false;
+                println!("{step}: stopped: {}", mask(&e.to_string()))
+            }
         }
+    }
+    // Two seconds of frames at 15 fps: Home shows the activation dialog
+    // from its frame loop, not from the startup.
+    // Regression: `play` stopped after the startup and never reached it.
+    if started {
+        for i in 0..30 {
+            if let Err(e) = player::stage::step(&mut vm, &mut host, 66) {
+                println!("frame step {i}: stopped: {}", mask(&e.to_string()));
+                break;
+            }
+        }
+        println!("after 2 s: frame {}", host.frame);
     }
     let fonts = fonts::HostFonts::new();
     let draws = host.draws();
