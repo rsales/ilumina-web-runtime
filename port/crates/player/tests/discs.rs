@@ -192,14 +192,16 @@ fn home_managers_build() {
     big_stack(home_managers_build_inner);
 }
 
-fn home_managers_build_inner() {
-    let Some((mut vm, mut host)) = load("Home.dxr") else {
-        return;
-    };
-    let _ = vm.movie_event(&mut host, "prepareMovie", vec![]);
+type Steps = Vec<(&'static str, Result<Value, lingo_vm::LingoError>)>;
+
+/// Home's startup by components (the registered path, without the
+/// registration dialog): managers, then the rest of init and the first
+/// frame's events. Returns the managers that failed and the steps.
+fn home_component(vm: &mut Vm, host: &mut PlayerHost) -> (Vec<(&'static str, String)>, Steps) {
+    let _ = vm.movie_event(host, "prepareMovie", vec![]);
     let db_dir = vm
         .call(
-            &mut host,
+            host,
             "BuildPath",
             vec![Value::list(vec![Value::str("Databases")])],
         )
@@ -221,7 +223,7 @@ fn home_managers_build_inner() {
                 },
             });
         }
-        match vm.call_method(&mut host, "new", args) {
+        match vm.call_method(host, "new", args) {
             Ok(v) => {
                 eprintln!("{name}: OK ({})", v.ilk());
                 vm.set_global(global, v);
@@ -243,30 +245,29 @@ fn home_managers_build_inner() {
         .map(|v| v.to_text())
     };
     let mut rest: Vec<(&str, Result<Value, lingo_vm::LingoError>)> = Vec::new();
-    let anims = media("Animations", &mut vm, &mut host).unwrap();
+    let anims = media("Animations", vm, host).unwrap();
     let o = vm.global("oAnims");
     rest.push((
         "UnlockAnimations",
         vm.call_method(
-            &mut host,
+            host,
             "UnlockAnimations",
             vec![o, Value::str(anims), Value::str(".mov")],
         ),
     ));
-    let tours = media("GuidedTours", &mut vm, &mut host).unwrap();
+    let tours = media("GuidedTours", vm, host).unwrap();
     let o = vm.global("oTours");
     rest.push((
         "UnlockGTVs",
-        vm.call_method(&mut host, "UnlockGTVs", vec![o, Value::str(tours)]),
+        vm.call_method(host, "UnlockGTVs", vec![o, Value::str(tours)]),
     ));
     let module = vm.program.script_named("Home Module").expect("Home Module");
-    let r = vm.call_method(&mut host, "new", vec![Value::Script(module)]);
+    let r = vm.call_method(host, "new", vec![Value::Script(module)]);
     if let Ok(v) = &r {
         vm.set_global("goCurrentModule", v.clone());
     }
     rest.push(("new(script \"Home Module\")", r));
-    let began =
-        player::stage::begin_frame(&mut vm, &mut host, 1).map(|v| Value::Int(v.len() as i64));
+    let began = player::stage::begin_frame(vm, host, 1).map(|v| Value::Int(v.len() as i64));
     let began_ok = began.is_ok();
     rest.push(("beginSprite", began));
     for ev in ["prepareFrame", "startMovie", "enterFrame", "exitFrame"] {
@@ -274,9 +275,9 @@ fn home_managers_build_inner() {
             break;
         }
         let r = if ev == "startMovie" {
-            vm.movie_event(&mut host, ev, vec![]).map(|_| Value::Void)
+            vm.movie_event(host, ev, vec![]).map(|_| Value::Void)
         } else {
-            player::stage::frame_event(&mut vm, &mut host, ev).map(|_| Value::Void)
+            player::stage::frame_event(vm, host, ev).map(|_| Value::Void)
         };
         let stop = r.is_err();
         rest.push((ev, r));
@@ -284,6 +285,14 @@ fn home_managers_build_inner() {
             break;
         }
     }
+    (failures, rest)
+}
+
+fn home_managers_build_inner() {
+    let Some((mut vm, mut host)) = load("Home.dxr") else {
+        return;
+    };
+    let (failures, rest) = home_component(&mut vm, &mut host);
     for (step, r) in &rest {
         match r {
             Ok(_) => eprintln!("{step}: OK"),
@@ -492,4 +501,137 @@ fn render_png(host: &PlayerHost, movie: &str, out: &Path) {
     for (n, why) in &report.skipped {
         eprintln!("  sprite {n}: {why}");
     }
+}
+
+/// Home's side navigation, module by module: a fresh Home (component
+/// startup, playback), a click on the module, `go to movie` followed, the
+/// module's startup and a second of playback. Prints where each stops.
+#[test]
+fn home_modules() {
+    big_stack(home_modules_inner);
+}
+
+/// Home at frame 2, ready for the mouse.
+fn home_ready() -> Option<(Vm, PlayerHost)> {
+    let (mut vm, mut host) = load("Home.dxr")?;
+    let (failures, rest) = home_component(&mut vm, &mut host);
+    assert!(failures.is_empty() && rest.iter().all(|(_, r)| r.is_ok()));
+    for _ in 0..5 {
+        player::stage::step(&mut vm, &mut host, 66).expect("Home plays");
+    }
+    Some((vm, host))
+}
+
+fn home_modules_inner() {
+    use player::stage::{mouse, Mouse};
+    let Some((mut vm, mut host)) = home_ready() else {
+        return;
+    };
+    // The side navigation: which sprite is under the mouse down the column.
+    let x = std::env::var("ILUMINA_NAV_X")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(980);
+    let mut runs: Vec<(u16, i64, i64)> = Vec::new();
+    for y in (140..=560).step_by(6) {
+        mouse(&mut vm, &mut host, Mouse::Move(x, y)).expect("move");
+        let s = host.mouse_over;
+        match runs.last_mut() {
+            Some((o, _, end)) if *o == s => *end = y,
+            _ => runs.push((s, y, y)),
+        }
+    }
+    eprintln!("column x={x}: {runs:?}");
+    drop((vm, host));
+    // One fresh Home per module (Bíblia … Extras, then the add-on list).
+    let ys: Vec<i64> = std::env::var("ILUMINA_NAV_YS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|y| y.parse().ok()).collect())
+        .unwrap_or_else(|| vec![190, 248, 302, 356, 418, 500]);
+    let mut report = Vec::new();
+    for y in ys {
+        let (mut vm, mut host) = home_ready().unwrap();
+        let r = click_into_module(&mut vm, &mut host, x, y);
+        eprintln!("module at y={y}: {r}");
+        report.push((y, r));
+    }
+    for (y, r) in &report {
+        eprintln!("  y={y}: {r}");
+    }
+    // Ratchet (2026-11-01): every module of the side navigation starts and
+    // plays a second. Regressions fixed on the way: locVToLinePos, member
+    // chunk refs, updateControl, quad, hexString, hyperlinks, #paragraph,
+    // the TreeView Xtra, timeouts, member.member, scrollTop.
+    if std::env::var("ILUMINA_NAV_YS").is_err() {
+        let names = [
+            "Bible",
+            "Encyclopedia",
+            "TimeTravel",
+            "MediaCenter",
+            "Extras",
+            "MyStudyCenter",
+        ];
+        for ((_, r), name) in report.iter().zip(names) {
+            assert!(r.starts_with(&format!("{name} OK")), "{name}: {r}");
+        }
+    }
+}
+
+/// Click at (x, y) on Home, follow `go to movie`, start the module and play
+/// a second: a one-line outcome.
+fn click_into_module(vm: &mut Vm, host: &mut PlayerHost, x: i64, y: i64) -> String {
+    use player::stage::{mouse, step, Mouse};
+    for ev in [Mouse::Move(x, y), Mouse::Down(x, y), Mouse::Up(x, y)] {
+        if let Err(e) = mouse(vm, host, ev) {
+            return format!("{ev:?} stopped: {e}");
+        }
+    }
+    for _ in 0..3 {
+        if let Err(e) = step(vm, host, 66) {
+            return format!("Home step stopped: {e}");
+        }
+        if host.go_movie.is_some() {
+            break;
+        }
+    }
+    let Some((movie, _)) = host.go_movie.clone() else {
+        return format!(
+            "no go to movie (frame {}, over sprite {})",
+            host.frame, host.mouse_over
+        );
+    };
+    let file = format!("{movie}.dxr");
+    let Some(bytes) = host
+        .vfs
+        .read(&format!("{}Files\\{file}", player::vfs::APP_DIR))
+    else {
+        return format!("{movie}: movie file not found");
+    };
+    let casts = player::cast_files(&bytes, &file).unwrap();
+    if let Err(e) = player::switch_movie(vm, host, &file, &casts) {
+        return format!("{movie}: switch failed: {e}");
+    }
+    host.go_movie = None;
+    for (ev, r) in player::stage::start_movie(vm, host) {
+        if let Err(e) = r {
+            return format!("{movie} {ev} stopped: {e}");
+        }
+    }
+    let mut frames = Vec::new();
+    for _ in 0..15 {
+        if let Err(e) = step(vm, host, 66) {
+            return format!("{movie} playback stopped at frame {}: {e}", host.frame);
+        }
+        frames.push(host.frame);
+        if let Some((m, _)) = &host.go_movie {
+            return format!("{movie} plays, then goes to movie {m}");
+        }
+    }
+    frames.dedup();
+    let trees: Vec<usize> = host.trees.values().map(|t| t.nodes.len() - 2).collect();
+    format!(
+        "{movie} OK, frames {frames:?}, dialogs {}, tree nodes {trees:?}, unanswered {:?}",
+        host.dialogs_shown.len(),
+        host.missing.keys().collect::<Vec<_>>()
+    )
 }

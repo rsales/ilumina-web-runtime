@@ -227,6 +227,11 @@ pub fn call(vm: &mut Vm, host: &mut dyn Host, name: &str, args: &[Value]) -> R {
                 _ => Value::Color(c(a0.clone()), c(arg(args, 1)), c(arg(args, 2))),
             }
         }
+        // `hexString(rgb(…))` = "#RRGGBB".
+        "hexstring" => match &a0 {
+            Value::Color(r, g, b) => Value::Str(format!("#{r:02X}{g:02X}{b:02X}")),
+            _ => return Err(format!("hexString: {} is not a color", a0.ilk())),
+        },
         "rect" => match (&a0, &arg(args, 1)) {
             (Value::Point(l, t), Value::Point(r, b)) => Value::Rect(*l, *t, *r, *b),
             _ => Value::Rect(
@@ -554,7 +559,7 @@ fn string_chunk(vm: &Vm, s: &str, lname: &str, args: &[Value]) -> Option<Value> 
             "char" => Kind::Char,
             "word" => Kind::Word,
             "item" => Kind::Item,
-            "line" => Kind::Line,
+            "line" | "paragraph" => Kind::Line,
             _ => return None,
         },
         _ => return None,
@@ -754,6 +759,16 @@ mod tests {
             "rgb",
             &[Value::Int(255), Value::Int(255), Value::Int(225)]
         )));
+        // Regression: Encyclopedia's "Hyperlink style" checks colors with
+        // hexString (not implemented).
+        let c = b("rgb", &[Value::str("#0a3cFF")]);
+        assert_eq!(b("hexString", &[c]).to_text(), "#0A3CFF");
+        // Regression: Encyclopedia reads `s.paragraph[2]` (a line).
+        let p = b(
+            "getProp",
+            &[Value::str("a\rb"), Value::sym("paragraph"), Value::Int(2)],
+        );
+        assert_eq!(p.to_text(), "b");
     }
 
     #[test]

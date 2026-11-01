@@ -38,6 +38,9 @@ pub struct SpriteState {
     pub xtra_props: Vec<(String, Value)>,
     /// The score interval (first, last frame) this sprite belongs to.
     pub span: Option<(u32, u32)>,
+    /// Corners Lingo set with `sprite.quad` (top-left, top-right,
+    /// bottom-right, bottom-left); ⏳ drawn as the bounding rect.
+    pub quad: Option<[(f64, f64); 4]>,
 }
 
 fn objects(list: &[Value]) -> Vec<ObjectRef> {
@@ -217,6 +220,36 @@ pub fn step(vm: &mut Vm, host: &mut PlayerHost, elapsed_ms: i64) -> Result<(), L
     frame_event(vm, host, "prepareFrame")?;
     frame_event(vm, host, "enterFrame")?;
     frame_event(vm, host, "exitFrame")?;
+    run_timeouts(vm, host)
+}
+
+/// Call the timeouts that are due: `handler(target, timeout)` on an object
+/// target, else the movie handler `handler(timeout)`.
+// Regression: the TreeView behaviors build their tree from a 100 ms
+// timeout (`timeout` was not implemented).
+pub fn run_timeouts(vm: &mut Vm, host: &mut PlayerHost) -> Result<(), LingoError> {
+    for (id, handler, target) in host.due_timeouts() {
+        // Forgotten by an earlier call in this round.
+        if host
+            .timeouts
+            .get(id as usize)
+            .is_none_or(|t| t.due.is_none())
+        {
+            continue;
+        }
+        let me = Value::Host(lingo_vm::value::HostRef::Object {
+            kind: "timeout".into(),
+            id,
+        });
+        match target {
+            Value::Object(o) => {
+                vm.call_method(host, &handler, vec![Value::Object(o), me])?;
+            }
+            _ => {
+                vm.call(host, &handler, vec![me])?;
+            }
+        }
+    }
     Ok(())
 }
 

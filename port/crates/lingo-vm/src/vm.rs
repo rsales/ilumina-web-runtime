@@ -1045,7 +1045,7 @@ impl Vm {
                 "char" => chunk::Kind::Char,
                 "word" => chunk::Kind::Word,
                 "item" => chunk::Kind::Item,
-                "line" => chunk::Kind::Line,
+                "line" | "paragraph" => chunk::Kind::Line,
                 other => return Err(format!("unknown chunk type #{other}")),
             })
         };

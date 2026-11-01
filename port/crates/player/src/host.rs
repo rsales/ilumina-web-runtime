@@ -33,6 +33,22 @@ pub struct MemberInfo {
     pub style: Vec<(String, Value)>,
 }
 
+/// A style set on a chunk of member text: char range (0-based, end
+/// exclusive), property, value.
+pub type ChunkStyle = (usize, usize, String, Value);
+
+/// A timeout object: named, and running once `new` gave it a period.
+#[derive(Clone, Debug, Default)]
+pub struct Timeout {
+    pub name: String,
+    pub period: i64,
+    pub handler: String,
+    pub target: Value,
+    pub persistent: bool,
+    /// Clock time of the next call; `None` = not running (forgotten).
+    pub due: Option<i64>,
+}
+
 /// The error a run ends with when the program calls `quit` or `halt`.
 pub const QUIT: &str = "the program quit";
 
@@ -52,6 +68,16 @@ fn scaled_reg(b: (i64, i64, i64, i64, i64), w: i64, h: i64, stretched: bool) -> 
 
 /// Underline characters `a..b` (0-based, end exclusive), splitting runs.
 fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
+    restyle(runs, a, b, |s| s.underline = true);
+}
+
+/// Change the style of chars `a..b` (0-based), splitting runs.
+fn restyle(
+    runs: &mut Vec<rifx::text::Run>,
+    a: usize,
+    b: usize,
+    f: impl Fn(&mut rifx::text::TextStyle),
+) {
     let mut out = Vec::new();
     for r in runs.drain(..) {
         let cuts = [
@@ -65,7 +91,9 @@ fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
                 let mut piece = r.clone();
                 piece.start = w[0];
                 piece.end = w[1];
-                piece.style.underline |= w[0] >= a && w[1] <= b;
+                if w[0] >= a && w[1] <= b {
+                    f(&mut piece.style);
+                }
                 out.push(piece);
             }
         }
@@ -76,11 +104,6 @@ fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
     *runs = out;
 }
 
-/// The user changed item `p` (1-based) of a Mui dialog. Check boxes and
-/// radio buttons hold 1/0, and a selected radio button clears the others
-/// (the Xtra does that itself).
-// Regression: radio buttons got the string "1" and stayed selected
-// together, so the program's callback found the wrong choice.
 /// Whether dialog item `p` (1-based) is enabled (unset = enabled).
 fn item_enabled(items: &[Value], p: usize) -> bool {
     let Some(it) = items.get(p.wrapping_sub(1)) else {
@@ -90,6 +113,11 @@ fn item_enabled(items: &[Value], p: usize) -> bool {
     e.is_void() || e.truthy()
 }
 
+/// The user changed item `p` (1-based) of a Mui dialog. Check boxes and
+/// radio buttons hold 1/0, and a selected radio button clears the others
+/// (the Xtra does that itself).
+// Regression: radio buttons got the string "1" and stayed selected
+// together, so the program's callback found the wrong choice.
 fn set_item_value(items: &[Value], p: usize, v: &str) {
     use crate::mui::{prop, set_prop};
     let Some(it) = items.get(p.wrapping_sub(1)) else {
@@ -137,25 +165,24 @@ pub fn html_to_text(html: &str) -> String {
 }
 
 /// Text of an HTML string and its hyperlinks as Director's `hyperlinks`
-/// (1-based inclusive character ranges of each `<a>`).
-pub fn html_parse(html: &str) -> (String, Vec<(usize, usize)>) {
+/// (1-based inclusive character ranges of each `<a>`, with its `href`).
+pub fn html_parse(html: &str) -> (String, Vec<(usize, usize, String)>) {
     let mut out = String::new();
     let mut links = Vec::new();
-    let mut link_start: Option<usize> = None;
+    let mut link_start: Option<(usize, String)> = None;
     let mut rest = html;
     while let Some(c) = rest.chars().next() {
         if c == '<' {
             let end = rest.find('>').map(|e| e + 1).unwrap_or(rest.len());
-            let tag = rest[1..end.saturating_sub(1).max(1)]
-                .trim()
-                .to_ascii_lowercase();
+            let raw = rest[1..end.saturating_sub(1).max(1)].trim();
+            let tag = raw.to_ascii_lowercase();
             let name = tag.split_whitespace().next().unwrap_or("");
             let len = out.chars().count();
             match name {
-                "a" => link_start = Some(len),
+                "a" => link_start = Some((len, href_of(raw))),
                 "/a" => {
-                    if let Some(a) = link_start.take().filter(|&a| a < len) {
-                        links.push((a + 1, len));
+                    if let Some((a, href)) = link_start.take().filter(|(a, _)| *a < len) {
+                        links.push((a + 1, len, href));
                     }
                 }
                 _ => {}
@@ -223,6 +250,23 @@ pub fn html_parse(html: &str) -> (String, Vec<(usize, usize)>) {
     (text, links)
 }
 
+/// The `href` of an `<a …>` tag (quoted or bare), "" without one.
+fn href_of(tag: &str) -> String {
+    let lower = tag.to_ascii_lowercase();
+    let Some(i) = lower.find("href") else {
+        return String::new();
+    };
+    let rest = tag[i + 4..].trim_start();
+    let Some(rest) = rest.strip_prefix('=') else {
+        return String::new();
+    };
+    let rest = rest.trim_start();
+    match rest.chars().next() {
+        Some(q @ ('"' | '\'')) => rest[1..].split(q).next().unwrap_or("").to_string(),
+        _ => rest.split_whitespace().next().unwrap_or("").to_string(),
+    }
+}
+
 /// `&aacute;`-style entities for Latin-1 accented letters.
 fn latin1_accent(ent: &str) -> Option<char> {
     let (base, mark) = ent.split_at(1);
@@ -239,6 +283,48 @@ fn latin1_accent(ent: &str) -> Option<char> {
 }
 
 /// Member display properties scripts may set and read back.
+/// One text style property (lower-case name) set by Lingo.
+fn apply_style(s: &mut rifx::text::TextStyle, k: &str, v: &Value) {
+    match (k, v) {
+        ("color" | "forecolor", Value::Color(r, g, b)) => s.color = [*r, *g, *b],
+        ("font", v) => s.font = v.to_text(),
+        ("fontsize", v) => s.size = v.to_int().clamp(1, 500) as u16,
+        ("fontstyle", Value::List(l)) => {
+            let has = |n: &str| {
+                l.borrow()
+                    .iter()
+                    .any(|v| v.to_text().eq_ignore_ascii_case(n))
+            };
+            s.bold = has("bold");
+            s.italic = has("italic");
+            s.underline = has("underline");
+        }
+        _ => {}
+    }
+}
+
+/// A chunk of a member's text (`member.line[3]`): a host object whose kind
+/// names the member and its char range (0-based, end exclusive).
+fn chunk_ref(lib: i64, number: i64, a: usize, b: usize) -> HostRef {
+    HostRef::Object {
+        kind: format!("chunk {lib} {number} {a} {b}"),
+        id: 0,
+    }
+}
+
+fn parse_chunk_ref(target: &HostRef) -> Option<(i64, i64, usize, usize)> {
+    let HostRef::Object { kind, .. } = target else {
+        return None;
+    };
+    let mut it = kind.strip_prefix("chunk ")?.split(' ');
+    Some((
+        it.next()?.parse().ok()?,
+        it.next()?.parse().ok()?,
+        it.next()?.parse().ok()?,
+        it.next()?.parse().ok()?,
+    ))
+}
+
 pub const MEMBER_STYLE_PROPS: &[&str] = &[
     "color",
     "bgcolor",
@@ -247,6 +333,9 @@ pub const MEMBER_STYLE_PROPS: &[&str] = &[
     "font",
     "fontsize",
     "fontstyle",
+    "usehypertextstyles",
+    // ⏳ Drawn from the top for now; kept for reading back.
+    "scrolltop",
     "alignment",
     "wordwrap",
     "boxtype",
@@ -365,6 +454,16 @@ pub struct PlayerHost {
     pub mouse: (i64, i64),
     /// The sprite under the pointer (0 = none), for mouseEnter/mouseLeave.
     pub mouse_over: u16,
+    /// Styles set on chunks of member text (`member.line[n].color`):
+    /// (lib, number) → (char range, property, value), in order. Cleared
+    /// when the text is replaced.
+    pub member_ranges: HashMap<(i64, i64), Vec<ChunkStyle>>,
+    /// Director timeout objects (`timeout("name").new(period, #h, obj)`).
+    pub timeouts: Vec<Timeout>,
+    /// TreeView Xtra sprites' trees, by channel.
+    pub trees: HashMap<u16, crate::treeview::Tree>,
+    /// `puppetSound` per channel (member or name; 0 = stopped).
+    pub sounds: HashMap<i64, Value>,
     /// The button is down.
     pub mouse_down: bool,
     /// The sprite the last press went to (`the clickOn`).
@@ -479,6 +578,10 @@ impl PlayerHost {
             go_movie: None,
             mouse: (-1, -1),
             mouse_over: 0,
+            member_ranges: HashMap::new(),
+            sounds: HashMap::new(),
+            trees: HashMap::new(),
+            timeouts: Vec::new(),
             mouse_down: false,
             click_on: 0,
             fonts: Box::new(crate::fonts::ApproxFonts),
@@ -676,26 +779,17 @@ impl PlayerHost {
             });
         }
         let get = |k: &str| m.style.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        for r in &mut st.runs {
-            // Regression: `member.color = rgb(…)` was ignored when drawing.
-            if let Some(Value::Color(cr, cg, cb)) = get("color").or_else(|| get("forecolor")) {
-                r.style.color = [cr, cg, cb];
+        // Regression: `member.color = rgb(…)` was ignored when drawing.
+        for (k, v) in &m.style {
+            for r in &mut st.runs {
+                apply_style(&mut r.style, k, v);
             }
-            if let Some(f) = get("font") {
-                r.style.font = f.to_text();
-            }
-            if let Some(sz) = get("fontsize") {
-                r.style.size = sz.to_int().clamp(1, 500) as u16;
-            }
-            if let Some(Value::List(l)) = get("fontstyle") {
-                let has = |n: &str| {
-                    l.borrow()
-                        .iter()
-                        .any(|v| v.to_text().eq_ignore_ascii_case(n))
-                };
-                r.style.bold = has("bold");
-                r.style.italic = has("italic");
-                r.style.underline = has("underline");
+        }
+        // `member.line[n].color = …` and other chunk styles, in order.
+        // Regression: Home's add-on rollover colors a line of the list.
+        if let Some(ranges) = self.member_ranges.get(&(lib, number)) {
+            for (a, b, k, v) in ranges {
+                restyle(&mut st.runs, *a, *b, |s| apply_style(s, k, v));
             }
         }
         // Hyperlinks are drawn underlined (Director's link style).
@@ -711,6 +805,128 @@ impl PlayerHost {
             }
         }
         Some(st)
+    }
+
+    /// The index of the timeout named `name`, created (not running) if new.
+    fn timeout_id(&mut self, name: &str) -> i64 {
+        if let Some(i) = self
+            .timeouts
+            .iter()
+            .position(|t| t.name.eq_ignore_ascii_case(name))
+        {
+            return i as i64;
+        }
+        self.timeouts.push(Timeout {
+            name: name.to_string(),
+            ..Default::default()
+        });
+        self.timeouts.len() as i64 - 1
+    }
+
+    /// Timeouts due at the current clock: (index, handler, target), each
+    /// rescheduled one period later.
+    pub fn due_timeouts(&mut self) -> Vec<(i64, String, Value)> {
+        let now = self.clock_ms;
+        let mut out = Vec::new();
+        for (i, t) in self.timeouts.iter_mut().enumerate() {
+            if let Some(d) = t.due.filter(|&d| d <= now) {
+                // Late calls are not queued up: one call, next period on.
+                t.due = Some(d.max(now - t.period) + t.period);
+                out.push((i as i64, t.handler.clone(), t.target.clone()));
+            }
+        }
+        out
+    }
+
+    /// A member's hyperlinks: (first, last char, 1-based inclusive; href).
+    fn member_links(&self, lib: i64, number: i64) -> Vec<(usize, usize, String)> {
+        let Some(m) = self.member_info(lib, number) else {
+            return Vec::new();
+        };
+        let get = |k: &str| m.style.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let (Some(Value::List(ranges)), targets) = (get("hyperlinks"), get("hyperlinktargets"))
+        else {
+            return Vec::new();
+        };
+        let targets = match targets {
+            Some(Value::List(t)) => t.borrow().clone(),
+            _ => Vec::new(),
+        };
+        let out = ranges
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                let Value::List(r) = r else { return None };
+                let r = r.borrow();
+                Some((
+                    r.first()?.to_int().max(1) as usize,
+                    r.get(1)?.to_int().max(0) as usize,
+                    targets.get(i).map(|t| t.to_text()).unwrap_or_default(),
+                ))
+            })
+            .collect();
+        out
+    }
+
+    /// `pointToChar(sprite, point)`: the char (1-based) of a text sprite
+    /// under a stage point, -1 outside the sprite.
+    fn point_to_char(&self, sprite: i64, p: (f64, f64)) -> i64 {
+        let Some(st) = self.sprites.get(&(sprite as u16)) else {
+            return -1;
+        };
+        let Some((lib, number)) = st.member else {
+            return -1;
+        };
+        let (x, y) = (p.0 as i64 - st.loc.0, p.1 as i64 - st.loc.1);
+        if x < 0 || y < 0 || x >= st.width || y >= st.height {
+            return -1;
+        }
+        match self.measure(lib, number) {
+            Some((m, _)) => m.char_under(x as f32, y as f32).map_or(-1, |c| c as i64),
+            None => -1,
+        }
+    }
+
+    /// A chunk of a member's text from `(#line, first[, last])`: its char
+    /// range (0-based, end exclusive) and text.
+    fn member_chunk(
+        &self,
+        lib: i64,
+        number: i64,
+        args: &[Value],
+    ) -> Option<(usize, usize, String)> {
+        let text = self.member_info(lib, number)?.text.clone()?;
+        self.text_chunk(&text, args)
+    }
+
+    /// The chunk `(#kind, first[, last])` of `text`: char range (0-based,
+    /// end exclusive) and its text.
+    fn text_chunk(&self, text: &str, args: &[Value]) -> Option<(usize, usize, String)> {
+        use lingo_vm::chunk::{locate, ChunkSpec};
+        let first = arg(args, 1).to_int();
+        let last = if args.len() >= 3 {
+            arg(args, 2).to_int()
+        } else {
+            0
+        };
+        let mut spec = ChunkSpec::default();
+        match arg(args, 0).to_text().to_ascii_lowercase().as_str() {
+            "char" => spec.char = (first, last),
+            "word" => spec.word = (first, last),
+            "item" => spec.item = (first, last),
+            "line" | "paragraph" => spec.line = (first, last),
+            _ => return None,
+        }
+        let delim = self
+            .settings
+            .get("itemdelimiter")
+            .map(|d| d.to_text().chars().next().unwrap_or(','))
+            .unwrap_or(',');
+        let r = locate(text, &spec, delim);
+        let a = text[..r.start].chars().count();
+        let b = a + text[r.clone()].chars().count();
+        Some((a, b, text[r].to_string()))
     }
 
     /// `charPosToLoc`, `locToCharPos`, `linePosToLocV` on a member.
@@ -732,6 +948,7 @@ impl PlayerHost {
             "linepostolocv" => {
                 Value::Int(m.line_baseline(a.to_int().max(1) as usize).round() as i64)
             }
+            "locvtolinepos" => Value::Int(m.line_at(a.to_int() as f32) as i64),
             _ => return None,
         })
     }
@@ -813,6 +1030,17 @@ impl PlayerHost {
                 (l + st.width) as f64,
                 (t + st.height) as f64,
             ),
+            // Regression: the Extras easter egg reads `sprite.quad` to flip.
+            "quad" => {
+                let (l, t, r, b) = (
+                    l as f64,
+                    t as f64,
+                    (l + st.width) as f64,
+                    (t + st.height) as f64,
+                );
+                let q = st.quad.unwrap_or([(l, t), (r, t), (r, b), (l, b)]);
+                Value::list(q.iter().map(|&(x, y)| Value::Point(x, y)).collect())
+            }
             "left" => Value::Int(l),
             "top" => Value::Int(t),
             "right" => Value::Int(l + st.width),
@@ -897,6 +1125,33 @@ impl PlayerHost {
                 Value::Point(x, y) => st.loc = (*x as i64, *y as i64),
                 _ => return false,
             },
+            // The corners as given; the sprite moves to their bounding rect.
+            "quad" => {
+                let Value::List(l) = v else { return false };
+                let pts: Vec<(f64, f64)> = l
+                    .borrow()
+                    .iter()
+                    .filter_map(|p| match p {
+                        Value::Point(x, y) => Some((*x, *y)),
+                        _ => None,
+                    })
+                    .collect();
+                let Ok(q) = <[(f64, f64); 4]>::try_from(pts) else {
+                    return false;
+                };
+                let (mut l, mut t, mut r, mut b) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for (x, y) in q {
+                    (l, t, r, b) = (l.min(x), t.min(y), r.max(x), b.max(y));
+                }
+                st.quad = Some(q);
+                st.stretched = true;
+                st.width = (r - l) as i64;
+                st.height = (b - t) as i64;
+                let reg = bitmap
+                    .map(|bm| scaled_reg(bm, st.width, st.height, true))
+                    .unwrap_or((0, 0));
+                st.loc = (l as i64 + reg.0, t as i64 + reg.1);
+            }
             "loch" => st.loc.0 = v.to_int(),
             "locv" => st.loc.1 = v.to_int(),
             "locz" => st.loc_z = v.to_int(),
@@ -1071,7 +1326,7 @@ impl lingo_vm::Host for PlayerHost {
                 };
                 Value::Int(self.sprite_under(self.mouse, Some(n)).is_some() as i64)
             }
-            "charpostoloc" | "loctocharpos" | "linepostolocv" => {
+            "charpostoloc" | "loctocharpos" | "linepostolocv" | "locvtolinepos" => {
                 match self.text_function(&name.to_ascii_lowercase(), &a0, &args[1..]) {
                     Some(v) => v,
                     None => return Ok(None),
@@ -1118,6 +1373,55 @@ impl lingo_vm::Host for PlayerHost {
             // quit / halt: the projector ends. The run stops here; the page
             // says the program closed.
             "quit" | "halt" => return Err(QUIT.to_string()),
+            // `timeout("name")`: the timeout of that name (case-insensitive).
+            "timeout" => Value::Host(HostRef::Object {
+                kind: "timeout".into(),
+                id: self.timeout_id(&a0.to_text()),
+            }),
+            // `GetNodeLocationXTV(sprite(n), node)`: the TreeView Xtra.
+            l if l.ends_with("xtv") && matches!(a0, Value::Host(HostRef::Sprite(_))) => {
+                let Value::Host(HostRef::Sprite(n)) = a0 else {
+                    unreachable!()
+                };
+                let tree = self.trees.entry(n as u16).or_default();
+                match tree.method(l, &args[1..]) {
+                    Some(v) => v,
+                    None => return Ok(None),
+                }
+            }
+            "pointtochar" | "pointinhyperlink" => {
+                let n = match &a0 {
+                    Value::Host(HostRef::Sprite(n)) => *n,
+                    v => v.to_int(),
+                };
+                let Value::Point(x, y) = arg(args, 1) else {
+                    return Ok(None);
+                };
+                let c = self.point_to_char(n, (x, y));
+                if name.eq_ignore_ascii_case("pointtochar") {
+                    Value::Int(c)
+                } else {
+                    let member = self.sprites.get(&(n as u16)).and_then(|s| s.member);
+                    let inside = c > 0
+                        && member.is_some_and(|(l, m)| {
+                            self.member_links(l, m)
+                                .iter()
+                                .any(|(s, e, _)| *s as i64 <= c && c <= *e as i64)
+                        });
+                    Value::Int(inside as i64)
+                }
+            }
+            // Sound channels: remembered, not played yet (⏳ WebAudio, M4).
+            // Regression: Home's credits easter egg calls puppetSound.
+            "puppetsound" => {
+                let (ch, m) = match args {
+                    [m] => (1, m.clone()),
+                    [ch, m, ..] => (ch.to_int(), m.clone()),
+                    [] => (1, Value::Int(0)),
+                };
+                self.sounds.insert(ch, m);
+                Value::Void
+            }
             "updatestage" => {
                 self.stage_updates += 1;
                 Value::Void
@@ -1353,6 +1657,26 @@ impl lingo_vm::Host for PlayerHost {
         args: &[Value],
     ) -> HostResult<Option<Value>> {
         if let HostRef::Object { kind, id } = target {
+            if kind == "timeout" {
+                let now = self.clock_ms;
+                if let Some(t) = self.timeouts.get_mut(*id as usize) {
+                    match name.to_ascii_lowercase().as_str() {
+                        // new(period, #handler[, target])
+                        "new" => {
+                            t.period = arg(args, 0).to_int().max(1);
+                            t.handler = arg(args, 1).to_text();
+                            t.target = arg(args, 2);
+                            t.due = Some(now + t.period);
+                            return Ok(Some(Value::Host(target.clone())));
+                        }
+                        "forget" => {
+                            t.due = None;
+                            return Ok(Some(Value::Void));
+                        }
+                        _ => {}
+                    }
+                }
+            }
             if kind.eq_ignore_ascii_case("fileio") {
                 if let Some(v) = self.file_method(*id, name, args) {
                     return Ok(Some(v));
@@ -1390,6 +1714,64 @@ impl lingo_vm::Host for PlayerHost {
         ) {
             return Ok(Some(v));
         }
+        // Chunks of chunks (`member.line[2].char[1]`), relative to the chunk.
+        // Regression: Encyclopedia's ShowHtmlText reads line n's first char.
+        if let Some((lib, number, a, b)) = parse_chunk_ref(target) {
+            let lname = name.to_ascii_lowercase();
+            let text: String = self
+                .member_info(lib, number)
+                .and_then(|m| m.text.clone())
+                .unwrap_or_default()
+                .chars()
+                .skip(a)
+                .take(b.saturating_sub(a))
+                .collect();
+            if matches!(lname.as_str(), "getpropref" | "getprop") {
+                if let Some((sa, sb, sub)) = self.text_chunk(&text, args) {
+                    return Ok(Some(if lname == "getprop" {
+                        Value::Str(sub)
+                    } else {
+                        Value::Host(chunk_ref(lib, number, a + sa, a + sb))
+                    }));
+                }
+            }
+        }
+        // `member.setProp(#line, n, text)`: replaces that chunk of the text.
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("setprop") && args.len() >= 3 {
+                let (lib, number) = (*lib, *number);
+                if let Some((a, b, _)) = self.member_chunk(lib, number, &args[..args.len() - 1]) {
+                    let new = args[args.len() - 1].to_text();
+                    if let Some(m) = self
+                        .members
+                        .iter_mut()
+                        .find(|m| m.lib as i64 == lib && m.number as i64 == number)
+                    {
+                        let t = m.text.clone().unwrap_or_default();
+                        let mut out: String = t.chars().take(a).collect();
+                        out.push_str(&new);
+                        out.extend(t.chars().skip(b));
+                        m.text = Some(out);
+                        // ⏳ chunk styles after the edit shift in Director.
+                        self.member_ranges.remove(&(lib, number));
+                        return Ok(Some(Value::Void));
+                    }
+                }
+            }
+        }
+        // `member.line[3]` (getPropRef) and `member.line[3]` read as text.
+        if let HostRef::Member { lib, number } = target {
+            let lname = name.to_ascii_lowercase();
+            if matches!(lname.as_str(), "getpropref" | "getprop") {
+                if let Some((a, b, text)) = self.member_chunk(*lib, *number, args) {
+                    return Ok(Some(if lname == "getprop" {
+                        Value::Str(text)
+                    } else {
+                        Value::Host(chunk_ref(*lib, *number, a, b))
+                    }));
+                }
+            }
+        }
         // `member.count(#char)` and friends on field/text members.
         if let HostRef::Member { lib, number } = target {
             if name.eq_ignore_ascii_case("count") {
@@ -1399,7 +1781,9 @@ impl lingo_vm::Host for PlayerHost {
                         "char" | "chars" => Kind::Char,
                         "word" | "words" => Kind::Word,
                         "item" | "items" => Kind::Item,
-                        "line" | "lines" => Kind::Line,
+                        // A paragraph is a line of the text (`\r`-separated).
+                        // Regression: Encyclopedia counts #paragraph.
+                        "line" | "lines" | "paragraph" | "paragraphs" => Kind::Line,
                         _ => return Ok(None),
                     };
                     let delim = self
@@ -1410,6 +1794,27 @@ impl lingo_vm::Host for PlayerHost {
                     return Ok(Some(Value::Int(count(&t, kind, delim) as i64)));
                 }
             }
+        }
+        // TreeView Xtra sprites: `sprite(n).addChildXTV(…)`.
+        if let HostRef::Sprite(n) = target {
+            let lname = name.to_ascii_lowercase();
+            // `sprite(n).pointToChar(pt)` = `pointToChar(sprite(n), pt)`.
+            if matches!(lname.as_str(), "pointtochar" | "pointinhyperlink") {
+                let mut all = vec![Value::Host(target.clone())];
+                all.extend_from_slice(args);
+                return self.call(_vm, name, &all);
+            }
+            if lname.ends_with("xtv") {
+                let tree = self.trees.entry(*n as u16).or_default();
+                if let Some(v) = tree.method(&lname, args) {
+                    return Ok(Some(v));
+                }
+            }
+        }
+        // OSControl sprites redraw on `updateControl`; the page draws from
+        // the sprite state every frame. Regression: Bible's startMovie.
+        if matches!(target, HostRef::Sprite(_)) && name.eq_ignore_ascii_case("updatecontrol") {
+            return Ok(Some(Value::Void));
         }
         // `member(aMember)` reaches here first (object-first dispatch).
         if matches!(target, HostRef::Member { .. }) && name.eq_ignore_ascii_case("member") {
@@ -1439,6 +1844,65 @@ impl lingo_vm::Host for PlayerHost {
         name: &str,
     ) -> HostResult<Option<Value>> {
         let lname = name.to_ascii_lowercase();
+        if let HostRef::Object { kind, id } = target {
+            if kind == "timeout" {
+                if let Some(t) = self.timeouts.get(*id as usize) {
+                    return Ok(match lname.as_str() {
+                        "name" => Some(Value::Str(t.name.clone())),
+                        "period" => Some(Value::Int(t.period)),
+                        "target" => Some(t.target.clone()),
+                        "timeouthandler" => Some(Value::sym(&t.handler)),
+                        "persistent" => Some(Value::Int(t.persistent as i64)),
+                        _ => None,
+                    });
+                }
+            }
+        }
+        if let Some((lib, number, a, b)) = parse_chunk_ref(target) {
+            // Hyperlinks of the chunk's first char (1-based inclusive).
+            let link = self
+                .member_links(lib, number)
+                .into_iter()
+                .find(|(s, e, _)| *s <= a + 1 && a < *e);
+            match lname.as_str() {
+                "ref" => return Ok(Some(Value::Host(target.clone()))),
+                "hyperlinkrange" => {
+                    return Ok(Some(Value::list(match &link {
+                        Some((s, e, _)) => vec![Value::Int(*s as i64), Value::Int(*e as i64)],
+                        None => vec![],
+                    })))
+                }
+                "hyperlink" => return Ok(Some(Value::Str(link.map(|l| l.2).unwrap_or_default()))),
+                "hyperlinkstate" => {
+                    let set = self.member_ranges.get(&(lib, number)).and_then(|r| {
+                        r.iter()
+                            .rev()
+                            .find(|(s, e, k, _)| k == "hyperlinkstate" && *s <= a && a < *e)
+                            .map(|(_, _, _, v)| v.clone())
+                    });
+                    return Ok(Some(set.unwrap_or_else(|| Value::sym("normal"))));
+                }
+                _ => {}
+            }
+            let st = self.styled_text(lib, number);
+            let style = st.as_ref().and_then(|st| {
+                st.runs
+                    .iter()
+                    .find(|r| r.start <= a && a < r.end)
+                    .map(|r| r.style.clone())
+            });
+            return Ok(match (lname.as_str(), style) {
+                ("text" | "string", _) => st.map(|st| {
+                    Value::Str(st.text.chars().skip(a).take(b.saturating_sub(a)).collect())
+                }),
+                ("color" | "forecolor", Some(s)) => {
+                    Some(Value::Color(s.color[0], s.color[1], s.color[2]))
+                }
+                ("font", Some(s)) => Some(Value::Str(s.font)),
+                ("fontsize", Some(s)) => Some(Value::Int(s.size as i64)),
+                _ => None,
+            });
+        }
         let v = match target {
             HostRef::Member { lib, number } => {
                 let m = self
@@ -1461,6 +1925,9 @@ impl lingo_vm::Host for PlayerHost {
                     ("castlibnum", Some(m)) => Value::Int(m.lib as i64),
                     ("name", Some(m)) => Value::Str(m.name),
                     ("type", Some(m)) => Value::Symbol(m.kind),
+                    // `member("x").member` is the member itself.
+                    // Regression: Extras' "Copy text" behavior.
+                    ("member", Some(_)) => Value::Host(target.clone()),
                     ("type", None) => Value::sym("empty"),
                     // Linked media: the size of the file Lingo pointed it at.
                     ("width" | "height" | "rect", Some(m))
@@ -1502,6 +1969,10 @@ impl lingo_vm::Host for PlayerHost {
                         .find(|(k, _)| k == p)
                         .map(|(_, v)| v.clone())
                         .unwrap_or_default(),
+                    // No links set: none (⏳ links authored in XMED).
+                    ("hyperlinks", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
+                        Value::list(vec![])
+                    }
                     ("filename", Some(m)) => Value::Str(
                         m.file_name
                             .as_deref()
@@ -1601,6 +2072,40 @@ impl lingo_vm::Host for PlayerHost {
                 return Ok(true);
             }
         }
+        if let HostRef::Object { kind, id } = target {
+            if kind == "timeout" {
+                let now = self.clock_ms;
+                if let Some(t) = self.timeouts.get_mut(*id as usize) {
+                    match name.to_ascii_lowercase().as_str() {
+                        "period" => {
+                            t.period = value.to_int().max(1);
+                            if t.due.is_some() {
+                                t.due = Some(now + t.period);
+                            }
+                        }
+                        "target" => t.target = value.clone(),
+                        "timeouthandler" => t.handler = value.to_text(),
+                        "persistent" => t.persistent = value.truthy(),
+                        _ => return Ok(false),
+                    }
+                    return Ok(true);
+                }
+            }
+        }
+        if let Some((lib, number, a, b)) = parse_chunk_ref(target) {
+            let lname = name.to_ascii_lowercase();
+            // Text styles are drawn; paragraph props (firstIndent…) and
+            // hyperlinkState are kept for reading back.
+            if !matches!(lname.as_str(), "text" | "string" | "ref") {
+                self.member_ranges.entry((lib, number)).or_default().push((
+                    a,
+                    b,
+                    lname,
+                    value.clone(),
+                ));
+                return Ok(true);
+            }
+        }
         if let HostRef::Member { lib, number } = target {
             if name.eq_ignore_ascii_case("text") {
                 if let Some(m) = self
@@ -1610,6 +2115,7 @@ impl lingo_vm::Host for PlayerHost {
                 {
                     if matches!(m.kind.as_str(), "field" | "text") {
                         m.text = Some(value.to_text());
+                        self.member_ranges.remove(&(*lib, *number));
                         return Ok(true);
                     }
                 }
@@ -1634,17 +2140,25 @@ impl lingo_vm::Host for PlayerHost {
                             _ => return Ok(false),
                         };
                         m.text = Some(text);
-                        m.style.retain(|(k, _)| k != "html" && k != "hyperlinks");
+                        m.style.retain(|(k, _)| {
+                            !matches!(k.as_str(), "html" | "hyperlinks" | "hyperlinktargets")
+                        });
                         if let Some(h) = html {
                             // `member.hyperlinks`: [[start, end], …]
                             let links = html_parse(&h).1;
                             let list = links
                                 .iter()
-                                .map(|&(a, b)| {
-                                    Value::list(vec![Value::Int(a as i64), Value::Int(b as i64)])
+                                .map(|(a, b, _)| {
+                                    Value::list(vec![Value::Int(*a as i64), Value::Int(*b as i64)])
                                 })
                                 .collect();
+                            let targets = links
+                                .iter()
+                                .map(|(_, _, t)| Value::str(t.clone()))
+                                .collect();
                             m.style.push(("hyperlinks".into(), Value::list(list)));
+                            m.style
+                                .push(("hyperlinktargets".into(), Value::list(targets)));
                             m.style.push(("html".into(), Value::Str(h)));
                         }
                         return Ok(true);
@@ -2212,10 +2726,287 @@ mod tests {
         assert_eq!(st.runs[0].style.color, [1, 2, 3]);
         assert_eq!(st.runs[0].style.size, 10);
         let c = host
-            .call(&mut vm, "locToCharPos", &[m, Value::Point(0.0, 15.0)])
+            .call(
+                &mut vm,
+                "locToCharPos",
+                &[m.clone(), Value::Point(0.0, 15.0)],
+            )
             .unwrap()
             .unwrap();
         assert_eq!(c.to_int(), 4);
+        // Regression: Home's add-on rollover calls `locVToLinePos`.
+        let mut line = |y: i64| {
+            host.call(&mut vm, "locVToLinePos", &[m.clone(), Value::Int(y)])
+                .unwrap()
+                .unwrap()
+                .to_int()
+        };
+        assert_eq!((line(0), line(12), line(500)), (1, 2, 2));
+    }
+
+    #[test]
+    fn module_startup_calls() {
+        // Regressions from the Home → module tour (2026-11-01): Bible calls
+        // sprite.updateControl(), Extras reads/sets sprite.quad, Home's
+        // credits call puppetSound, Encyclopedia sets useHypertextStyles.
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        let s = HostRef::Sprite(2);
+        host.set_prop(&mut vm, &s, "rect", &Value::Rect(10.0, 20.0, 30.0, 60.0))
+            .unwrap();
+        let q = host.get_prop(&mut vm, &s, "quad").unwrap().unwrap();
+        assert_eq!(
+            q.to_string(),
+            "[point(10, 20), point(30, 20), point(30, 60), point(10, 60)]"
+        );
+        let flipped = Value::list(vec![
+            Value::Point(30.0, 20.0),
+            Value::Point(10.0, 20.0),
+            Value::Point(10.0, 60.0),
+            Value::Point(30.0, 60.0),
+        ]);
+        assert!(host.set_prop(&mut vm, &s, "quad", &flipped).unwrap());
+        let q = host.get_prop(&mut vm, &s, "quad").unwrap().unwrap();
+        assert_eq!(q.to_string(), flipped.to_string());
+        let r = host.get_prop(&mut vm, &s, "rect").unwrap().unwrap();
+        assert_eq!(r.to_string(), "rect(10, 20, 30, 60)");
+        assert!(host
+            .method(&mut vm, &s, "updateControl", &[])
+            .unwrap()
+            .is_some());
+        host.call(
+            &mut vm,
+            "puppetSound",
+            &[Value::Int(2), Value::str("BennyHill")],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(host.sounds[&2].to_text(), "BennyHill");
+        assert!(MEMBER_STYLE_PROPS.contains(&"usehypertextstyles"));
+        // Extras sets a field's scrollTop.
+        assert!(MEMBER_STYLE_PROPS.contains(&"scrolltop"));
+        host.members.push(MemberInfo {
+            lib: 5,
+            number: 182,
+            name: "ClipboardMember".into(),
+            kind: "field".into(),
+            script: None,
+            bitmap: None,
+            text: None,
+            styled: None,
+            file_name: None,
+            style: vec![],
+        });
+        let m = HostRef::Member {
+            lib: 5,
+            number: 182,
+        };
+        let same = host.get_prop(&mut vm, &m, "member").unwrap().unwrap();
+        assert_eq!(same.to_string(), Value::Host(m).to_string());
+    }
+
+    #[test]
+    fn hyperlinks_of_member_chunks() {
+        // Regression: Encyclopedia's "Hyperlink style" reads member
+        // hyperlinks, chunk refs, hyperlinkRange/hyperlink/hyperlinkState
+        // and pointToChar/pointInHyperlink (none implemented).
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "text".into(),
+            script: None,
+            bitmap: None,
+            text: Some(String::new()),
+            styled: None,
+            file_name: None,
+            style: vec![("fontsize".into(), Value::Int(10))],
+        });
+        let m = HostRef::Member { lib: 1, number: 1 };
+        let none = host.get_prop(&mut vm, &m, "hyperlinks").unwrap().unwrap();
+        assert_eq!(none.to_string(), "[]");
+        host.set_prop(
+            &mut vm,
+            &m,
+            "html",
+            &Value::str("ab <a href=\"x:1\">cd</a> e"),
+        )
+        .unwrap();
+        let links = host.get_prop(&mut vm, &m, "hyperlinks").unwrap().unwrap();
+        assert_eq!(links.to_string(), "[[4, 5]]");
+        let args = [Value::sym("char"), Value::Int(4), Value::Int(5)];
+        let Value::Host(c) = host
+            .method(&mut vm, &m, "getPropRef", &args)
+            .unwrap()
+            .unwrap()
+        else {
+            panic!()
+        };
+        let get = |host: &mut PlayerHost, vm: &mut Vm, k: &str| {
+            host.get_prop(vm, &c, k).unwrap().unwrap().to_string()
+        };
+        assert_eq!(
+            get(&mut host, &mut vm, "ref"),
+            Value::Host(c.clone()).to_string()
+        );
+        assert_eq!(get(&mut host, &mut vm, "hyperlinkRange"), "[4, 5]");
+        assert_eq!(get(&mut host, &mut vm, "hyperlink"), "\"x:1\"");
+        assert_eq!(get(&mut host, &mut vm, "hyperlinkState"), "#normal");
+        host.set_prop(&mut vm, &c, "hyperlinkState", &Value::sym("visited"))
+            .unwrap();
+        assert_eq!(get(&mut host, &mut vm, "hyperlinkState"), "#visited");
+        // A sprite showing the member at (100, 50): 'c' is the 4th char.
+        host.set_prop(
+            &mut vm,
+            &HostRef::Sprite(3),
+            "member",
+            &Value::Host(m.clone()),
+        )
+        .unwrap();
+        host.set_prop(
+            &mut vm,
+            &HostRef::Sprite(3),
+            "rect",
+            &Value::Rect(100.0, 50.0, 300.0, 80.0),
+        )
+        .unwrap();
+        let s3 = Value::Host(HostRef::Sprite(3));
+        let call = |host: &mut PlayerHost, vm: &mut Vm, f: &str, x: f64| {
+            host.call(vm, f, &[s3.clone(), Value::Point(x, 52.0)])
+                .unwrap()
+                .unwrap()
+                .to_int()
+        };
+        assert_eq!(call(&mut host, &mut vm, "pointToChar", 120.0), 4);
+        assert_eq!(call(&mut host, &mut vm, "pointInHyperlink", 120.0), 1);
+        assert_eq!(call(&mut host, &mut vm, "pointInHyperlink", 101.0), 0);
+        assert_eq!(call(&mut host, &mut vm, "pointToChar", 50.0), -1);
+    }
+
+    #[test]
+    fn timeouts_run_on_the_clock() {
+        // Regression: the TreeView behaviors call
+        // `timeout("Initialize").new(100, #BuildRealTree, me)`, then forget
+        // it from the handler (timeouts were not implemented).
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        let t = host
+            .call(&mut vm, "timeout", &[Value::str("Initialize")])
+            .unwrap()
+            .unwrap();
+        let Value::Host(r) = t.clone() else { panic!() };
+        let args = [Value::Int(100), Value::sym("BuildRealTree"), Value::Int(0)];
+        host.method(&mut vm, &r, "new", &args).unwrap().unwrap();
+        assert_eq!(
+            host.get_prop(&mut vm, &r, "period")
+                .unwrap()
+                .unwrap()
+                .to_int(),
+            100
+        );
+        host.clock_ms += 66;
+        assert!(host.due_timeouts().is_empty());
+        host.clock_ms += 66;
+        let due = host.due_timeouts();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].1, "BuildRealTree");
+        // Same timeout by name, any case; forgetting stops it.
+        let same = host
+            .call(&mut vm, "timeout", &[Value::str("initialize")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(same.to_string(), t.to_string());
+        host.method(&mut vm, &r, "forget", &[]).unwrap();
+        host.clock_ms += 1000;
+        assert!(host.due_timeouts().is_empty());
+    }
+
+    #[test]
+    fn member_line_chunks_take_styles() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.members.push(MemberInfo {
+            lib: 1,
+            number: 1,
+            name: String::new(),
+            kind: "text".into(),
+            script: None,
+            bitmap: None,
+            text: Some("ab\rcd\ref".into()),
+            styled: None,
+            file_name: None,
+            style: vec![],
+        });
+        let m = HostRef::Member { lib: 1, number: 1 };
+        // Regression: Home's add-on rollover sets `member.line[n].color`
+        // (getPropRef on a member was not implemented).
+        let args = [Value::sym("line"), Value::Int(2)];
+        let r = host
+            .method(&mut vm, &m, "getPropRef", &args)
+            .unwrap()
+            .unwrap();
+        let Value::Host(chunk) = r else {
+            panic!("{r:?}")
+        };
+        assert_eq!(
+            host.get_prop(&mut vm, &chunk, "text")
+                .unwrap()
+                .unwrap()
+                .to_text(),
+            "cd"
+        );
+        assert!(host
+            .set_prop(&mut vm, &chunk, "color", &Value::Color(9, 8, 7))
+            .unwrap());
+        let st = host.styled_text(1, 1).unwrap();
+        let color_at = |i: usize| {
+            st.runs
+                .iter()
+                .find(|r| r.start <= i && i < r.end)
+                .unwrap()
+                .style
+                .color
+        };
+        assert_eq!(
+            (color_at(1), color_at(3), color_at(6)),
+            ([0, 0, 0], [9, 8, 7], [0, 0, 0])
+        );
+        let t = host.method(&mut vm, &m, "getProp", &args).unwrap().unwrap();
+        assert_eq!(t.to_text(), "cd");
+        let n = host
+            .method(&mut vm, &m, "count", &[Value::sym("paragraph")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(n.to_int(), 3);
+        // Chunks of chunks, and setProp(#line, n, text) on the member.
+        let first = [Value::sym("char"), Value::Int(1)];
+        let c = host
+            .method(&mut vm, &chunk, "getProp", &first)
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.to_text(), "c");
+        let Value::Host(sub) = host
+            .method(&mut vm, &chunk, "getPropRef", &first)
+            .unwrap()
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert!(host
+            .set_prop(&mut vm, &sub, "firstIndent", &Value::Int(20))
+            .unwrap());
+        let set = [Value::sym("line"), Value::Int(2), Value::str("XY")];
+        host.method(&mut vm, &m, "setProp", &set).unwrap().unwrap();
+        assert_eq!(
+            host.member_info(1, 1).unwrap().text.as_deref(),
+            Some("ab\rXY\ref")
+        );
+        // New text drops the chunk styles.
+        host.set_prop(&mut vm, &m, "text", &Value::str("xy"))
+            .unwrap();
+        assert!(host.member_ranges.is_empty());
     }
 
     #[test]

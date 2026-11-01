@@ -195,6 +195,36 @@ impl Measure {
         1
     }
 
+    /// `pointToChar`: the character (1-based) whose box holds (x, y), or
+    /// `None` between or past characters.
+    pub fn char_under(&self, x: f32, y: f32) -> Option<usize> {
+        let mut top = 0.0;
+        for l in &self.lines {
+            if y >= top && y < top + l.height {
+                return l
+                    .items
+                    .iter()
+                    .find(|p| x >= p.x && x < p.x + p.advance)
+                    .map(|p| p.idx + 1);
+            }
+            top += l.height;
+        }
+        None
+    }
+
+    /// `locVToLinePos`: the line (1-based) at distance `y` from the top;
+    /// past the end, the last line (1 for empty text).
+    pub fn line_at(&self, y: f32) -> usize {
+        let mut top = 0.0;
+        for (i, l) in self.lines.iter().enumerate() {
+            if y < top + l.height {
+                return i + 1;
+            }
+            top += l.height;
+        }
+        self.lines.len().max(1)
+    }
+
     /// `linePosToLocV`: distance from the top to line `n`'s baseline.
     pub fn line_baseline(&self, n: usize) -> f32 {
         let mut top = 0.0;

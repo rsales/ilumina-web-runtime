@@ -9,6 +9,7 @@ pub mod host;
 pub mod mui;
 pub mod render;
 pub mod stage;
+pub mod treeview;
 pub mod v4md;
 pub mod vfs;
 
@@ -135,6 +136,7 @@ pub fn switch_movie(
     vm.movie_event(host, "stopMovie", vec![])
         .map_err(|e| e.message)?;
     host.sprites.clear();
+    host.trees.clear();
     host.frame_script = None;
     host.frame_script_span = None;
     host.frame = 0;
