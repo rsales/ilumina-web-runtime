@@ -57,9 +57,23 @@ impl ScriptCode {
 #[derive(Default)]
 pub struct Program {
     pub scripts: Vec<ScriptCode>,
+    /// First script of the current movie. After `go to movie` the earlier
+    /// movies' scripts stay (objects in globals still run them) but name
+    /// lookups only see the current movie's casts.
+    pub movie_start: usize,
 }
 
 impl Program {
+    /// Start a new movie: scripts added from now on are the ones that
+    /// `script "x"` and movie handlers find.
+    pub fn begin_movie(&mut self) {
+        self.movie_start = self.scripts.len();
+    }
+
+    fn current(&self) -> impl Iterator<Item = (usize, &ScriptCode)> {
+        self.scripts.iter().enumerate().skip(self.movie_start)
+    }
+
     /// Add every script in `movie` (a `.dxr` or `.cxt`) as cast library `lib`.
     pub fn add_cast(&mut self, movie: &Movie, lib: u16) -> Result<usize, rifx::Error> {
         self.add_cast_from(movie, lib, 1)
@@ -135,25 +149,21 @@ impl Program {
 
     /// `script "name"`: a script member by name (case-insensitive).
     pub fn script_named(&self, name: &str) -> Option<usize> {
-        self.scripts
-            .iter()
-            .position(|s| s.name.eq_ignore_ascii_case(name))
+        self.current()
+            .find(|(_, s)| s.name.eq_ignore_ascii_case(name))
+            .map(|(i, _)| i)
     }
 
     /// Movie-script handler by name, searching cast libraries in order.
     pub fn movie_handler(&self, name: &str) -> Option<(usize, usize)> {
-        self.scripts
-            .iter()
-            .enumerate()
+        self.current()
             .filter(|(_, s)| s.kind == ScriptKind::Movie)
             .find_map(|(i, s)| s.handler(name).map(|h| (i, h)))
     }
 
     /// Every movie script that defines `name` (events go to all of them).
     pub fn movie_handlers(&self, name: &str) -> Vec<(usize, usize)> {
-        self.scripts
-            .iter()
-            .enumerate()
+        self.current()
             .filter(|(_, s)| s.kind == ScriptKind::Movie)
             .filter_map(|(i, s)| s.handler(name).map(|h| (i, h)))
             .collect()

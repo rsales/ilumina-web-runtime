@@ -40,12 +40,26 @@ pub struct App {
     /// The owner's registration data, typed into the page (never generated,
     /// ADR 0005): name, e-mail, CEP.
     owner: Option<(String, String, String)>,
-    /// Elapsed milliseconds of each playback step since the startup, so a
-    /// re-run (after fetching files) replays the same session.
-    log: Vec<i64>,
+    /// The session's events since the startup, so a re-run (after
+    /// fetching files or answering a dialog) replays the same session.
+    log: Vec<Ev>,
+    /// The page's dialog answers, given in order on each run.
+    answers: Vec<Vec<player::mui::DialogAction>>,
+    /// The movie the session started with, and the one on the stage.
+    start: Option<String>,
+    movie: String,
     /// The startup completed, so playback may continue.
     started: bool,
     pub frame: Vec<u8>,
+}
+
+/// One recorded event of a session.
+#[derive(Clone, Debug, PartialEq)]
+enum Ev {
+    Step(i64),
+    Mouse(player::stage::Mouse),
+    /// `go to movie` (disc path).
+    Movie(String),
 }
 
 /// The player's view of the disc: the files the page added; a file not
@@ -75,8 +89,11 @@ pub enum Step {
     Frame(usize),
     /// Add these files, then `play` again (the session is replayed).
     NeedFiles(Vec<String>),
-    /// Lingo asked for another movie (`go to movie`); not followed yet.
-    GoMovie(String),
+    /// A dialog waits for the user (lines, see `PendingDialog::to_lines`):
+    /// `answer`, then `play` again.
+    Dialog(String),
+    /// Lingo went to another movie (disc path), now on the stage.
+    Movie(String),
 }
 
 /// Result of [`App::play`].
@@ -87,6 +104,8 @@ pub enum Play {
     NeedFiles(Vec<String>),
     /// The startup ran: one line per step ("prepareMovie: OK" or the stop).
     Ran(Vec<String>),
+    /// A dialog waits for the user (see [`Step::Dialog`]).
+    Dialog(String),
 }
 
 /// `Files` view of the verified files for one movie folder.
@@ -121,6 +140,9 @@ impl App {
             missing: Default::default(),
             owner: None,
             log: Vec::new(),
+            answers: Vec::new(),
+            start: None,
+            movie: String::new(),
             started: false,
             frame: Vec::new(),
         }
@@ -182,8 +204,11 @@ impl App {
         let stage = Stage::load(&folder, name, palette).map_err(|e| e.to_string())?;
         drop(files);
         self.stage = Some(stage);
+        self.movie = movie.to_string();
         self.run = None;
+        self.start = None;
         self.log.clear();
+        self.answers.clear();
         Ok(())
     }
 
@@ -193,106 +218,239 @@ impl App {
             .then(|| (name.to_string(), email.to_string(), cep.to_string()));
     }
 
-    /// Run `movie`'s startup with its original Lingo, from the start. The
-    /// stage must be loaded (`load`). Files the run reads that the page has
-    /// not added come back as [`Play::NeedFiles`].
+    /// Run `movie`'s startup with its original Lingo, from the start, then
+    /// replay this session's events (frames, mouse, movie changes; dialog
+    /// answers are given in order). The stage must be loaded (`load`).
     pub fn play(&mut self, movie: &str) -> Result<Play, String> {
         self.stage()?;
+        if self.start.as_deref() != Some(movie) {
+            self.start = Some(movie.to_string());
+            self.log.clear();
+            self.answers.clear();
+        }
         self.missing.borrow_mut().clear();
         let disc = PageDisc {
             files: self.files.clone(),
             missing: self.missing.clone(),
         };
         let vfs = player::Vfs::new(Box::new(disc), self.manifest.iter().map(|e| e.path.clone()));
-        let (dir, name) = movie.rsplit_once('/').unwrap_or(("", movie));
+        let (_, name) = movie.rsplit_once('/').unwrap_or(("", movie));
         let bytes = self
             .files
             .borrow()
-            .get(&format!("{dir}/{name}"))
+            .get(movie)
             .cloned()
             .ok_or_else(|| format!("{movie}: not added yet"))?;
         let casts = player::cast_files(&bytes, name)?;
         let (mut vm, mut host) = player::load_movie(vfs, name, &casts)?;
         host.fonts = Box::new(PageFonts::default());
-        if let Some((n, e, c)) = &self.owner {
-            host.responder = Box::new(player::mui::Owner {
+        host.responder = Box::new(player::mui::PageUser {
+            owner: self.owner.as_ref().map(|(n, e, c)| player::mui::Owner {
                 name: n.clone(),
                 email: e.clone(),
                 cep: c.clone(),
-            });
-        }
+            }),
+            answers: self.answers.iter().cloned().collect(),
+        });
         let steps = player::stage::start_movie(&mut vm, &mut host);
-        // Replay the playback steps of this session (a re-run after files
-        // were fetched must reach the same state).
-        let mut replay_error = None;
         self.started = steps.iter().all(|(_, r)| r.is_ok());
+        let mut lines: Vec<String> = steps
+            .iter()
+            .map(|(step, r)| match r {
+                Ok(()) => format!("{step}: OK"),
+                Err(e) => format!("{step}: {}", self.masked(&e.message)),
+            })
+            .collect();
+        let mut current = movie.to_string();
+        let mut outcome = None;
         if self.started {
-            for &ms in &self.log {
-                if let Err(e) = player::stage::step(&mut vm, &mut host, ms) {
-                    replay_error = Some(e.message);
+            for ev in self.log.clone() {
+                let r = match &ev {
+                    Ev::Step(ms) => {
+                        player::stage::step(&mut vm, &mut host, *ms).map_err(|e| e.message)
+                    }
+                    Ev::Mouse(m) => {
+                        player::stage::mouse(&mut vm, &mut host, *m).map_err(|e| e.message)
+                    }
+                    Ev::Movie(m) => {
+                        current = m.clone();
+                        self.enter_movie(&mut vm, &mut host, m).map(|_| ())
+                    }
+                };
+                if let Err(e) = r {
+                    outcome = Some(e);
                     break;
                 }
             }
         }
-        let missing: Vec<String> = self.missing.borrow().iter().cloned().collect();
+        let missing = self.missing();
         if !missing.is_empty() {
             return Ok(Play::NeedFiles(missing));
         }
-        let mut secrets: Vec<String> = Vec::new();
-        if let Some((n, e, c)) = &self.owner {
-            secrets = [n, e, c]
-                .iter()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
+        if let Some(d) = host.pending_dialog.take() {
+            self.run = Some((vm, host));
+            return Ok(Play::Dialog(d.to_lines()));
         }
-        let lines = steps
-            .iter()
-            .map(|(step, r)| match r {
-                Ok(()) => format!("{step}: OK"),
-                Err(e) => {
-                    // The owner's values never go back into page messages.
-                    let mut m = e.message.clone();
-                    for s in &secrets {
-                        m = m.replace(s.as_str(), "<owner>");
-                    }
-                    format!("{step}: {m}")
-                }
-            })
-            .collect();
-        let mut lines: Vec<String> = lines;
-        if let Some(e) = replay_error {
-            lines.push(format!("playback: {e}"));
+        if let Some(e) = outcome {
+            lines.push(format!("playback: {}", self.masked(&e)));
+            self.started = false;
+        }
+        if current != self.movie {
+            self.load_stage(&current)?;
         }
         self.run = Some((vm, host));
         Ok(Play::Ran(lines))
     }
 
-    /// One frame of playback (`elapsed_ms` since the last). Files the step
-    /// read that are missing come back as [`Step::NeedFiles`]: add them and
-    /// `play` again, which replays the session.
-    pub fn play_step(&mut self, elapsed_ms: i64) -> Result<Step, String> {
+    fn masked(&self, text: &str) -> String {
+        let mut m = text.to_string();
+        if let Some((n, e, c)) = &self.owner {
+            for s in [n, e, c].into_iter().filter(|s| !s.is_empty()) {
+                m = m.replace(s.as_str(), "<owner>");
+            }
+        }
+        m
+    }
+
+    /// `go to movie` inside the run: switch the player and start the movie.
+    /// Errors when files are missing (the page fetches and replays).
+    fn enter_movie(
+        &self,
+        vm: &mut lingo_vm::Vm,
+        host: &mut player::PlayerHost,
+        movie: &str,
+    ) -> Result<(), String> {
+        let need = self.files_for(movie);
+        if !need.is_empty() {
+            self.missing.borrow_mut().extend(need);
+            return Err(format!("{movie}: files not added yet"));
+        }
+        let bytes = self.files.borrow().get(movie).cloned().unwrap_or_default();
+        let (_, name) = movie.rsplit_once('/').unwrap_or(("", movie));
+        let casts = player::cast_files(&bytes, name)?;
+        player::switch_movie(vm, host, name, &casts)?;
+        for (step, r) in player::stage::start_movie(vm, host) {
+            r.map_err(|e| format!("{name} {step}: {}", e.message))?;
+        }
+        Ok(())
+    }
+
+    /// The movie and the casts it needs that the page has not added.
+    fn files_for(&self, movie: &str) -> Vec<String> {
+        if !self.files.borrow().contains_key(movie) {
+            return vec![movie.to_string()];
+        }
+        let casts = self.needed_files(movie).unwrap_or_default();
+        let files = self.files.borrow();
+        casts
+            .into_iter()
+            .filter(|c| !files.contains_key(c))
+            .collect()
+    }
+
+    fn load_stage(&mut self, movie: &str) -> Result<(), String> {
+        let files = self.files.borrow();
+        let exe = files
+            .get(PROJECTOR)
+            .ok_or_else(|| format!("{PROJECTOR}: not added yet"))?;
+        let palette = rifx::bitmap::system_win_palette(exe)
+            .ok_or("System - Win palette not found in the projector")?;
+        let (dir, name) = movie.rsplit_once('/').unwrap_or(("", movie));
+        let folder = Folder { files: &files, dir };
+        let stage = Stage::load(&folder, name, palette).map_err(|e| e.to_string())?;
+        drop(files);
+        self.stage = Some(stage);
+        self.movie = movie.to_string();
+        Ok(())
+    }
+
+    /// Run one event of the session (recorded for replays) and report what
+    /// the page must do next.
+    fn event(&mut self, ev: Ev) -> Result<Step, String> {
         self.missing.borrow_mut().clear();
         if !self.started {
             return Err("the startup did not complete".into());
         }
-        let (vm, host) = self.run.as_mut().ok_or("not playing")?;
-        self.log.push(elapsed_ms);
-        let r = player::stage::step(vm, host, elapsed_ms);
-        let missing: Vec<String> = self.missing.borrow().iter().cloned().collect();
+        let Some((mut vm, mut host)) = self.run.take() else {
+            return Err("not playing".into());
+        };
+        self.log.push(ev.clone());
+        let mut r = match ev {
+            Ev::Step(ms) => player::stage::step(&mut vm, &mut host, ms).map_err(|e| e.message),
+            Ev::Mouse(m) => player::stage::mouse(&mut vm, &mut host, m).map_err(|e| e.message),
+            Ev::Movie(_) => Ok(()),
+        };
+        // `go to movie`: follow it now (recorded, so replays do the same).
+        let mut switched = None;
+        if r.is_ok() {
+            if let Some((name, _)) = host.go_movie.take() {
+                let path = self.movie_path(&name);
+                self.log.push(Ev::Movie(path.clone()));
+                r = self.enter_movie(&mut vm, &mut host, &path);
+                switched = Some(path);
+            }
+        }
+        let missing = self.missing();
+        let pending = host.pending_dialog.take();
+        let frame = host.frame;
+        self.run = Some((vm, host));
         if !missing.is_empty() {
             return Ok(Step::NeedFiles(missing));
         }
-        r.map_err(|e| e.message)?;
-        if let Some((movie, _)) = host.go_movie.take() {
-            return Ok(Step::GoMovie(movie));
+        if let Some(d) = pending {
+            return Ok(Step::Dialog(d.to_lines()));
         }
-        Ok(Step::Frame(host.frame))
+        if let Err(e) = r {
+            self.started = false;
+            return Err(self.masked(&e));
+        }
+        if let Some(path) = switched {
+            self.load_stage(&path)?;
+            return Ok(Step::Movie(path));
+        }
+        Ok(Step::Frame(frame))
+    }
+
+    /// The disc path of a movie named by Lingo (`"Bible"`, `"Bible.dxr"`).
+    fn movie_path(&self, name: &str) -> String {
+        let base = name.rsplit(['\\', '/', ':']).next().unwrap_or(name);
+        let file = if base.to_ascii_lowercase().ends_with(".dxr") {
+            base.to_string()
+        } else {
+            format!("{base}.dxr")
+        };
+        let want = format!("{MOVIE_DIR}/{file}").to_ascii_lowercase();
+        self.manifest
+            .iter()
+            .find(|e| e.path.to_ascii_lowercase() == want)
+            .map(|e| e.path.clone())
+            .unwrap_or(format!("{MOVIE_DIR}/{file}"))
+    }
+
+    /// One frame of playback (`elapsed_ms` since the last).
+    pub fn play_step(&mut self, elapsed_ms: i64) -> Result<Step, String> {
+        self.event(Ev::Step(elapsed_ms))
+    }
+
+    /// A mouse event at stage coordinates.
+    pub fn play_mouse(&mut self, m: player::stage::Mouse) -> Result<Step, String> {
+        self.event(Ev::Mouse(m))
+    }
+
+    /// The page's answer to the waiting dialog (see
+    /// [`player::mui::parse_actions`]); then `play` again to replay.
+    pub fn answer(&mut self, actions: &str) {
+        self.answers.push(player::mui::parse_actions(actions));
     }
 
     /// The running movie's current frame (0 when not playing).
     pub fn play_frame(&self) -> usize {
         self.run.as_ref().map(|r| r.1.frame).unwrap_or(0)
+    }
+
+    /// The movie on the stage (disc path).
+    pub fn movie(&self) -> &str {
+        &self.movie
     }
 
     /// Draw the stage as the running Lingo left it into `self.frame`.
@@ -622,25 +780,71 @@ pub unsafe extern "C" fn set_owner(ptr: *const u8, len: usize) -> i32 {
     0
 }
 
-/// Run the loaded movie's startup with its Lingo. Returns the number of
-/// files to add first (paths in the result buffer, one per line), or 0 when
-/// it ran (one line per step in the result buffer).
+/// Result codes of `play`, `play_step` and `play_mouse` (details in the
+/// result buffer): 0 ran (play: one line per startup step; step/mouse: the
+/// frame), 1 add these files then `play` again (one path per line), 2 a
+/// dialog waits (`PendingDialog` lines; `answer`, then `play` again), 3 the
+/// run went to another movie (its disc path; it is on the stage now),
+/// -1 error.
+fn play_code(r: Result<Play, String>) -> i32 {
+    status(r, |p| match p {
+        Play::Ran(lines) => {
+            set_result(&lines.join("\n"));
+            0
+        }
+        Play::NeedFiles(v) => {
+            set_result(&v.join("\n"));
+            1
+        }
+        Play::Dialog(d) => {
+            set_result(&d);
+            2
+        }
+    })
+}
+
+fn step_code(r: Result<Step, String>) -> i32 {
+    status(r, |s| match s {
+        Step::Frame(f) => {
+            set_result(&f.to_string());
+            0
+        }
+        Step::NeedFiles(v) => {
+            set_result(&v.join("\n"));
+            1
+        }
+        Step::Dialog(d) => {
+            set_result(&d);
+            2
+        }
+        Step::Movie(m) => {
+            set_result(&m);
+            3
+        }
+    })
+}
+
+/// Run the loaded movie's startup with its Lingo and replay the session
+/// (see `play_code`).
 ///
 /// # Safety
 /// `movie`/`len` must be valid UTF-8 in linear memory.
 #[no_mangle]
 pub unsafe extern "C" fn play(movie: *const u8, len: usize) -> i32 {
     let m = str_arg(movie, len).to_string();
-    status(APP.with(|a| a.borrow_mut().play(&m)), |p| match p {
-        Play::NeedFiles(v) => {
-            set_result(&v.join("\n"));
-            v.len() as i32
-        }
-        Play::Ran(lines) => {
-            set_result(&lines.join("\n"));
-            0
-        }
-    })
+    play_code(APP.with(|a| a.borrow_mut().play(&m)))
+}
+
+/// The page's answer to the waiting dialog: lines `set⇥pos⇥text`,
+/// `click⇥pos`, `close`. Then call `play` again.
+///
+/// # Safety
+/// `ptr`/`len` must be valid UTF-8 in linear memory.
+#[no_mangle]
+pub unsafe extern "C" fn answer(ptr: *const u8, len: usize) -> i32 {
+    let s = str_arg(ptr, len).to_string();
+    APP.with(|a| a.borrow_mut().answer(&s));
+    0
 }
 
 /// Draw the running movie's stage (pixels at `frame_ptr`); returns the
@@ -650,26 +854,31 @@ pub extern "C" fn play_render() -> i32 {
     FONTS.with(|f| status(APP.with(|a| a.borrow_mut().play_render(f)), |n| n as i32))
 }
 
-/// One frame of playback after `elapsed_ms`. Returns the frame (> 0), or
-/// 0 when files must be added first (list in the result buffer; then call
-/// `play` again), -2 for `go to movie` (movie name in the result buffer),
-/// -1 on error.
+/// One frame of playback after `elapsed_ms` (see `play_code`).
 #[no_mangle]
 pub extern "C" fn play_step(elapsed_ms: u32) -> i32 {
-    status(
-        APP.with(|a| a.borrow_mut().play_step(elapsed_ms as i64)),
-        |s| match s {
-            Step::Frame(f) => f as i32,
-            Step::NeedFiles(v) => {
-                set_result(&v.join("\n"));
-                0
-            }
-            Step::GoMovie(m) => {
-                set_result(&m);
-                -2
-            }
-        },
-    )
+    step_code(APP.with(|a| a.borrow_mut().play_step(elapsed_ms as i64)))
+}
+
+/// A mouse event at stage coordinates: kind 0 move, 1 down, 2 up.
+#[no_mangle]
+pub extern "C" fn play_mouse(kind: u32, x: i32, y: i32) -> i32 {
+    use player::stage::Mouse;
+    let (x, y) = (x as i64, y as i64);
+    let m = match kind {
+        1 => Mouse::Down(x, y),
+        2 => Mouse::Up(x, y),
+        _ => Mouse::Move(x, y),
+    };
+    step_code(APP.with(|a| a.borrow_mut().play_mouse(m)))
+}
+
+/// The disc path of the movie on the stage (in the result buffer).
+#[no_mangle]
+pub extern "C" fn current_movie() -> i32 {
+    let m = APP.with(|a| a.borrow().movie().to_string());
+    set_result(&m);
+    0
 }
 
 /// The running movie's current frame.
@@ -826,7 +1035,7 @@ mod tests {
                 }
                 app.load(movie).unwrap();
                 let mut rounds = 0;
-                let lines = loop {
+                let first = loop {
                     rounds += 1;
                     assert!(rounds < 30, "the run keeps asking for files");
                     match app.play(movie).unwrap() {
@@ -835,15 +1044,26 @@ mod tests {
                                 app.add_file(&f, read(&f)).unwrap();
                             }
                         }
-                        Play::Ran(lines) => break lines,
+                        other => break other,
                     }
                 };
                 eprintln!("play: {rounds} rounds, {} files", app.files.borrow().len());
-                assert!(lines[0].starts_with("prepareMovie: "), "{lines:?}");
-                assert!(lines[0].contains("Registre Sua C"), "{lines:?}");
+                // Without the owner's data the registration dialog waits for
+                // the page's user, with its items and geometry.
+                let Play::Dialog(lines) = first else {
+                    panic!("expected the registration dialog, got {first:?}")
+                };
+                assert!(lines.starts_with(" Registre Sua C"), "{lines}");
+                assert!(
+                    lines.lines().any(|l| l.starts_with("editText\t")),
+                    "{lines}"
+                );
+                // The user closes it: the program asks again (registration
+                // is required), so the dialog waits again after the replay.
+                app.answer("close");
+                assert!(matches!(app.play(movie).unwrap(), Play::Dialog(_)));
                 app.play_render(&PageFonts::default()).unwrap();
                 assert_eq!(app.frame.len(), 1024 * 768 * 4);
-                // Without the owner's data the startup stopped: no playback.
                 assert!(app.play_step(66).unwrap_err().contains("did not complete"));
             })
             .unwrap()

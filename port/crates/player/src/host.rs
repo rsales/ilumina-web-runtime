@@ -291,6 +291,8 @@ pub struct PlayerHost {
     pub responder: Box<dyn crate::mui::Responder>,
     /// Dialogs shown: "title: item types".
     pub dialogs_shown: Vec<String>,
+    /// A dialog waiting for the page's user (the run was interrupted).
+    pub pending_dialog: Option<crate::mui::PendingDialog>,
     /// Network requests the program made (host part only: the bodies of the
     /// registration post carry the owner's data).
     pub network: Vec<String>,
@@ -319,6 +321,12 @@ pub struct PlayerHost {
     pub images: std::cell::RefCell<HashMap<String, Option<std::rc::Rc<director::Bitmap>>>>,
     /// Mouse position on the stage; off the stage until the page sends one.
     pub mouse: (i64, i64),
+    /// The sprite under the pointer (0 = none), for mouseEnter/mouseLeave.
+    pub mouse_over: u16,
+    /// The button is down.
+    pub mouse_down: bool,
+    /// The sprite the last press went to (`the clickOn`).
+    pub click_on: u16,
 }
 
 fn arg(args: &[Value], i: usize) -> Value {
@@ -397,6 +405,8 @@ impl PlayerHost {
         let mut settings = HashMap::new();
         // `the actorList`: objects that get `stepFrame` every frame.
         settings.insert("actorlist".to_string(), Value::list(vec![]));
+        // No editable field has the keyboard focus until Lingo sets one.
+        settings.insert("keyboardfocussprite".to_string(), Value::Int(-1));
         PlayerHost {
             vfs,
             members: Vec::new(),
@@ -414,6 +424,7 @@ impl PlayerHost {
             v4md: Default::default(),
             responder: Box::new(crate::mui::CloseAll),
             dialogs_shown: Vec::new(),
+            pending_dialog: None,
             network: Vec::new(),
             dialogs: HashMap::new(),
             binfiles: HashMap::new(),
@@ -425,6 +436,9 @@ impl PlayerHost {
             go_target: None,
             go_movie: None,
             mouse: (-1, -1),
+            mouse_over: 0,
+            mouse_down: false,
+            click_on: 0,
             fonts: Box::new(crate::fonts::ApproxFonts),
             stage_updates: 0,
             images: Default::default(),
@@ -1054,6 +1068,11 @@ impl lingo_vm::Host for PlayerHost {
                         .unwrap_or(0) as i64,
                 )
             }
+            // cursor(n) / cursor([member, mask]): the page shows it (M2 slice 4).
+            "cursor" => {
+                self.settings.insert("cursor".into(), a0.clone());
+                Value::Void
+            }
             "updatestage" => {
                 self.stage_updates += 1;
                 Value::Void
@@ -1526,6 +1545,17 @@ impl lingo_vm::Host for PlayerHost {
                 return Ok(true);
             }
         }
+        // The stage window (`the stage.rect`, `title`…): the projector
+        // window moves; the page keeps the stage where it is.
+        if let HostRef::Object { kind, .. } = target {
+            if kind == "stage" {
+                self.settings.insert(
+                    format!("stage.{}", name.to_ascii_lowercase()),
+                    value.clone(),
+                );
+                return Ok(true);
+            }
+        }
         if let HostRef::Member { lib, number } = target {
             if name.eq_ignore_ascii_case("text") {
                 if let Some(m) = self
@@ -1658,7 +1688,10 @@ impl lingo_vm::Host for PlayerHost {
             | "cursor"
             | "alertHook"
             | "alerthook"
-            | "actorlist" => {
+            | "actorlist"
+            | "keyboardfocussprite"
+            | "selstart"
+            | "selend" => {
                 self.settings.insert(lname, value.clone());
                 Ok(true)
             }
@@ -1763,30 +1796,55 @@ impl PlayerHost {
                         .map_err(|e| e.to_string())
                 };
                 send(self, vm, "windowOpening", 0)?;
-                let actions = self.responder.dialog(&title, &view);
-                let mut closed = false;
-                for a in actions {
+                // Ask the user until the program stops the dialog or the
+                // user closes it (a modal loop).
+                let mut round = 0;
+                'modal: loop {
                     if self.dialogs.get(&id).is_none_or(|d| d.stopped) {
                         break;
                     }
-                    match a {
-                        DialogAction::SetValue(p, v) => {
-                            if let Some(it) = self.dialogs.get(&id).and_then(|d| d.items.get(p - 1))
-                            {
-                                set_prop(it, "value", Value::Str(v));
-                            }
-                            send(self, vm, "itemChanged", p)?;
+                    let Some(d) = self.dialogs.get(&id) else {
+                        break;
+                    };
+                    let (title, view) = d.view();
+                    let size = (
+                        prop(&d.window, "width").to_int(),
+                        prop(&d.window, "height").to_int(),
+                    );
+                    let Some(actions) = self.responder.dialog(&title, &view, round) else {
+                        self.pending_dialog = Some(crate::mui::PendingDialog {
+                            title,
+                            size,
+                            items: view,
+                        });
+                        return Err(crate::mui::DIALOG_PENDING.to_string());
+                    };
+                    round += 1;
+                    if round > 50 {
+                        return Err(format!("dialog {title:?}: no end after 50 answers"));
+                    }
+                    for a in actions {
+                        if self.dialogs.get(&id).is_none_or(|d| d.stopped) {
+                            break 'modal;
                         }
-                        DialogAction::Click(p) => send(self, vm, "itemClicked", p)?,
-                        DialogAction::Close => {
-                            send(self, vm, "windowClosed", 0)?;
-                            closed = true;
-                            break;
+                        match a {
+                            DialogAction::SetValue(p, v) => {
+                                if let Some(it) = self
+                                    .dialogs
+                                    .get(&id)
+                                    .and_then(|d| d.items.get(p.wrapping_sub(1)))
+                                {
+                                    set_prop(it, "value", Value::Str(v));
+                                }
+                                send(self, vm, "itemChanged", p)?;
+                            }
+                            DialogAction::Click(p) => send(self, vm, "itemClicked", p)?,
+                            DialogAction::Close => {
+                                send(self, vm, "windowClosed", 0)?;
+                                break 'modal;
+                            }
                         }
                     }
-                }
-                if !closed && self.dialogs.get(&id).is_some_and(|d| !d.stopped) {
-                    send(self, vm, "windowClosed", 0)?;
                 }
                 Value::Void
             }
@@ -1846,8 +1904,17 @@ impl PlayerHost {
                 (Value::sym("osLanguage"), Value::str("Portuguese")),
                 (Value::sym("productBuildVersion"), Value::str("9.0")),
             ]),
-            "shiftdown" | "optiondown" | "commanddown" | "controldown" | "mousedown"
-            | "stilldown" => Value::Int(0),
+            "shiftdown" | "optiondown" | "commanddown" | "controldown" => Value::Int(0),
+            "mousedown" | "stilldown" => Value::Int(self.mouse_down as i64),
+            "clickon" => Value::Int(self.click_on as i64),
+            "mousemember" => match self
+                .sprite_under(self.mouse, None)
+                .and_then(|n| self.sprites.get(&(n as u16)))
+                .and_then(|s| s.member)
+            {
+                Some((lib, number)) => Value::Host(HostRef::Member { lib, number }),
+                None => Value::Void,
+            },
             "milliseconds" => Value::Int(self.clock_ms),
             "ticks" => Value::Int(self.clock_ms * 60 / 1000),
             "timer" => Value::Int(self.clock_ms * 60 / 1000),

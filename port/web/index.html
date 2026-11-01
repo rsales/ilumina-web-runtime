@@ -18,6 +18,19 @@
   #register form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   #log { padding: 0 12px; color: #999; }
   #log pre { white-space: pre-wrap; margin: 4px 0; }
+  #wrap { position: relative; }
+  #dialog { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.25); }
+  #dialog[hidden] { display: none; }
+  #dialog .win { position: relative; background: #ece9d8; color: #000; font: 11px Tahoma, Verdana, sans-serif;
+    border: 1px solid #0a246a; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  #dialog .bar { display: flex; justify-content: space-between; align-items: center; height: 22px; padding: 0 4px;
+    background: linear-gradient(#0a246a, #3a6ea5); color: #fff; font-weight: bold; }
+  #dialog .bar button { background: #c44; color: #fff; border: 0; width: 18px; height: 18px; }
+  #dialog .body { position: relative; }
+  #dialog input:not([type]) { font: inherit; box-sizing: border-box; }
+  #dialog button { font: inherit; }
+  #dialog button.default { font-weight: bold; }
+  #dialog hr { margin: 0; border: 0; border-top: 1px solid #999; }
   canvas { background: #000; image-rendering: pixelated; max-width: 100%; height: auto; }
 </style>
 </head>
@@ -31,19 +44,18 @@
   <label title="Executa o Lingo original do filme (partida do Home)"><input id="lingo" type="checkbox" checked> Lingo</label>
   <span id="status">carregando…</span>
 </header>
-<section id="register" hidden>
+<details id="register"><summary>Dados de registro (opcional)</summary>
   <form id="regForm">
-    <strong>Registre sua cópia</strong> — na primeira execução o iLúmina pede os dados de registro do dono.
-    Ficam só neste navegador.
+    Preenchem automaticamente o diálogo "Registre Sua Cópia" a cada execução. Ficam só neste navegador.
     <label>Nome <input id="regName" autocomplete="name" required></label>
     <label>E-mail <input id="regEmail" type="email" autocomplete="email" required></label>
     <label>CEP <input id="regCep" autocomplete="postal-code"></label>
     <label><input id="regRemember" type="checkbox"> lembrar</label>
-    <button>Registrar e executar</button>
+    <button>Usar e executar</button>
   </form>
-</section>
+</details>
 <details id="log"><summary>Partida</summary><pre id="steps"></pre></details>
-<main><canvas id="stage" width="1024" height="768"></canvas></main>
+<main><div id="wrap"><canvas id="stage" width="1024" height="768"></canvas><div id="dialog" hidden></div></div></main>
 <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -17,6 +17,8 @@ pub struct DialogItem {
     pub title: String,
     pub value: String,
     pub enabled: bool,
+    /// Position and size in the window (`locH`, `locV`, `width`, `height`).
+    pub rect: (i64, i64, i64, i64),
 }
 
 /// One user action on a dialog (item positions are 1-based, as in Lingo).
@@ -28,9 +30,17 @@ pub enum DialogAction {
 }
 
 pub trait Responder {
-    /// Actions for a dialog titled `title`; the run ends at `Close`, at the
-    /// end of the list, or when the program calls `stop`.
-    fn dialog(&mut self, title: &str, items: &[DialogItem]) -> Vec<DialogAction>;
+    /// The user's next actions on a dialog titled `title`, as it looks now.
+    /// `round` counts the times this `Run` already asked (0 = it just
+    /// opened); the run ends at `Close` or when the program calls `stop`,
+    /// otherwise the responder is asked again. `None` = the user has not
+    /// answered yet (the page shows the dialog; the run is replayed).
+    fn dialog(
+        &mut self,
+        title: &str,
+        items: &[DialogItem],
+        round: usize,
+    ) -> Option<Vec<DialogAction>>;
     /// Button number (1-based) for a Mui alert.
     fn alert(&mut self, title: &str, message: &str, buttons: &str) -> usize;
 }
@@ -38,8 +48,8 @@ pub trait Responder {
 /// A user who closes every dialog and takes the default alert button.
 pub struct CloseAll;
 impl Responder for CloseAll {
-    fn dialog(&mut self, _: &str, _: &[DialogItem]) -> Vec<DialogAction> {
-        vec![DialogAction::Close]
+    fn dialog(&mut self, _: &str, _: &[DialogItem], _: usize) -> Option<Vec<DialogAction>> {
+        Some(vec![DialogAction::Close])
     }
     fn alert(&mut self, _: &str, _: &str, _: &str) -> usize {
         1
@@ -56,15 +66,40 @@ pub struct Owner {
     pub cep: String,
 }
 
+impl Owner {
+    /// The registration dialog filled in; `None` for any other dialog.
+    pub fn registration(&self, title: &str, items: &[DialogItem]) -> Option<Vec<DialogAction>> {
+        if !title.to_lowercase().contains("registr") {
+            return None;
+        }
+        Some(self.fill(items))
+    }
+}
+
 impl Responder for Owner {
-    fn dialog(&mut self, title: &str, items: &[DialogItem]) -> Vec<DialogAction> {
-        // The owner answers the registration dialog only; any other dialog
-        // (activation, about) is closed, like `CloseAll`.
+    fn dialog(
+        &mut self,
+        title: &str,
+        items: &[DialogItem],
+        round: usize,
+    ) -> Option<Vec<DialogAction>> {
+        // The owner answers the registration dialog only (once per run: a
+        // second ask means the answer was not accepted, and they close it);
+        // any other dialog (activation, about) is closed, like `CloseAll`.
         // Regression: the activation dialog would have got the name typed
         // into its code field.
-        if !title.to_lowercase().contains("registr") {
-            return vec![DialogAction::Close];
+        match self.registration(title, items) {
+            Some(a) if round == 0 => Some(a),
+            _ => Some(vec![DialogAction::Close]),
         }
+    }
+    fn alert(&mut self, _: &str, _: &str, _: &str) -> usize {
+        1
+    }
+}
+
+impl Owner {
+    fn fill(&self, items: &[DialogItem]) -> Vec<DialogAction> {
         let texts: Vec<usize> = items
             .iter()
             .enumerate()
@@ -93,9 +128,91 @@ impl Responder for Owner {
         }
         out
     }
+}
+
+/// The page's user: the owner's registration data fills the registration
+/// dialog (once per run); every other dialog waits for the answers the page
+/// collected (`answers`, consumed in order on each replay).
+pub struct PageUser {
+    pub owner: Option<Owner>,
+    pub answers: std::collections::VecDeque<Vec<DialogAction>>,
+}
+
+impl Responder for PageUser {
+    fn dialog(
+        &mut self,
+        title: &str,
+        items: &[DialogItem],
+        round: usize,
+    ) -> Option<Vec<DialogAction>> {
+        if round == 0 {
+            if let Some(a) = self
+                .owner
+                .as_ref()
+                .and_then(|o| o.registration(title, items))
+            {
+                return Some(a);
+            }
+        }
+        self.answers.pop_front()
+    }
     fn alert(&mut self, _: &str, _: &str, _: &str) -> usize {
         1
     }
+}
+
+/// The error that interrupts a run when a dialog waits for the page's user.
+pub const DIALOG_PENDING: &str = "dialog waiting for the user";
+
+/// What the page shows of a dialog waiting for an answer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingDialog {
+    pub title: String,
+    /// Window width and height.
+    pub size: (i64, i64),
+    pub items: Vec<DialogItem>,
+}
+
+impl PendingDialog {
+    /// Lines for the page: `title⇥width⇥height`, then per item
+    /// `kind⇥x⇥y⇥w⇥h⇥enabled⇥value⇥title` (tabs and returns in texts become
+    /// spaces / `\r`).
+    pub fn to_lines(&self) -> String {
+        let clean = |s: &str| s.replace('\t', " ").replace('\n', "\r");
+        let mut out = format!("{}\t{}\t{}", clean(&self.title), self.size.0, self.size.1);
+        for i in &self.items {
+            out.push_str(&format!(
+                "\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                i.kind,
+                i.rect.0,
+                i.rect.1,
+                i.rect.2,
+                i.rect.3,
+                i.enabled as u8,
+                clean(&i.value).replace('\r', "\\r"),
+                clean(&i.title).replace('\r', "\\r"),
+            ));
+        }
+        out
+    }
+}
+
+/// Parse the page's answer lines: `set⇥pos⇥text`, `click⇥pos`, `close`.
+pub fn parse_actions(s: &str) -> Vec<DialogAction> {
+    s.lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            match f.next()? {
+                "set" => Some(DialogAction::SetValue(
+                    f.next()?.parse().ok()?,
+                    f.next().unwrap_or("").to_string(),
+                )),
+                "click" => Some(DialogAction::Click(f.next()?.parse().ok()?)),
+                "close" => Some(DialogAction::Close),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// State of one Mui instance.
@@ -192,6 +309,12 @@ impl Dialog {
                 title: prop(i, "title").to_text(),
                 value: prop(i, "value").to_text(),
                 enabled: prop(i, "enabled").truthy() || prop(i, "enabled").is_void(),
+                rect: (
+                    prop(i, "locH").to_int(),
+                    prop(i, "locV").to_int(),
+                    prop(i, "width").to_int(),
+                    prop(i, "height").to_int(),
+                ),
             })
             .collect();
         (title, items)
@@ -208,6 +331,7 @@ mod tests {
             title: String::new(),
             value: String::new(),
             enabled,
+            rect: (0, 0, 0, 0),
         }
     }
 
@@ -230,7 +354,7 @@ mod tests {
             cep: "C".into(),
         };
         assert_eq!(
-            o.dialog("Registre Sua Cópia", &items),
+            o.dialog("Registre Sua Cópia", &items, 0).unwrap(),
             vec![
                 DialogAction::SetValue(2, "N".into()),
                 DialogAction::SetValue(3, "E".into()),
@@ -238,10 +362,41 @@ mod tests {
                 DialogAction::Click(6),
             ]
         );
-        assert_eq!(CloseAll.dialog("t", &items), vec![DialogAction::Close]);
         assert_eq!(
-            o.dialog("Ativação do iLúmina", &items),
+            CloseAll.dialog("t", &items, 0).unwrap(),
             vec![DialogAction::Close]
+        );
+        assert_eq!(
+            o.dialog("Ativação do iLúmina", &items, 0).unwrap(),
+            vec![DialogAction::Close]
+        );
+        // Asked again in the same run: the answer was not accepted; close.
+        assert_eq!(
+            o.dialog("Registre Sua Cópia", &items, 1).unwrap(),
+            vec![DialogAction::Close]
+        );
+        // The page's user: registration from the owner, others from answers.
+        let mut u = PageUser {
+            owner: Some(o),
+            answers: [vec![DialogAction::Click(6)]].into(),
+        };
+        assert_eq!(u.dialog("Registre Sua Cópia", &items, 0).unwrap().len(), 4);
+        assert_eq!(
+            u.dialog("Ativação", &items, 0),
+            Some(vec![DialogAction::Click(6)])
+        );
+        assert_eq!(u.dialog("Ativação", &items, 1), None);
+    }
+
+    #[test]
+    fn page_answers_parse() {
+        assert_eq!(
+            parse_actions("set\t2\tabc\tdef\nclick\t5\nbogus\nclose"),
+            vec![
+                DialogAction::SetValue(2, "abc\tdef".into()),
+                DialogAction::Click(5),
+                DialogAction::Close
+            ]
         );
     }
 

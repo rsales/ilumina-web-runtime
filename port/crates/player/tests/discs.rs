@@ -331,6 +331,66 @@ fn home_managers_build_inner() {
     for d in host.dialogs_shown.iter().take(12) {
         eprintln!("  {}", d.chars().take(100).collect::<String>());
     }
+    // The mouse: over the Bible module, then a click.
+    use player::stage::{mouse, Mouse};
+    let (bx, by) = (1000, 232);
+    let mut mouse_log = Vec::new();
+    for ev in [Mouse::Move(bx, by), Mouse::Move(bx + 1, by)] {
+        mouse_log.push(format!(
+            "{ev:?}: {:?}",
+            mouse(&mut vm, &mut host, ev).map_err(|e| e.message)
+        ));
+        let _ = player::stage::step(&mut vm, &mut host, 66);
+    }
+    let over = host.mouse_over;
+    if let Ok(out) = std::env::var("ILUMINA_RENDER_ROLLOVER") {
+        render_png(&host, "Home.dxr", Path::new(&out));
+    }
+    for ev in [Mouse::Down(bx, by), Mouse::Up(bx, by)] {
+        mouse_log.push(format!(
+            "{ev:?}: {:?}",
+            mouse(&mut vm, &mut host, ev).map_err(|e| e.message)
+        ));
+    }
+    let _ = player::stage::step(&mut vm, &mut host, 66);
+    eprintln!("mouse over sprite {over}; {mouse_log:?}");
+    assert!(
+        mouse_log.iter().all(|l| l.ends_with("Ok(())")),
+        "{mouse_log:?}"
+    );
+    eprintln!(
+        "after click: frame {}, go_movie {:?}",
+        host.frame, host.go_movie
+    );
+    // Follow `go to movie`: globals, prefs and the actorList carry over.
+    if let Some((movie, _)) = host.go_movie.clone() {
+        let file = format!("{movie}.dxr");
+        let bytes = host
+            .vfs
+            .read(&format!("{}Files\\{file}", player::vfs::APP_DIR))
+            .expect("movie file");
+        let casts = player::cast_files(&bytes, &file).unwrap();
+        if let Err(e) = player::switch_movie(&mut vm, &mut host, &file, &casts) {
+            panic!("go to movie {movie}: {e}");
+        }
+        let steps = player::stage::start_movie(&mut vm, &mut host);
+        for (step, r) in &steps {
+            match r {
+                Ok(()) => eprintln!("{movie} {step}: OK"),
+                Err(e) => eprintln!("{movie} {step}: stopped: {e}"),
+            }
+        }
+        // Ratchet: clicking the Encyclopedia module goes there and its
+        // startup completes with Home's globals (no second init).
+        assert_eq!(movie, "Encyclopedia");
+        assert!(
+            steps.iter().all(|(_, r)| r.is_ok()),
+            "Encyclopedia startup stopped"
+        );
+        if let Ok(out) = std::env::var("ILUMINA_RENDER_NEXT") {
+            render_png(&host, &file, Path::new(&out));
+        }
+    }
     // Ratchet: Home holds on frame 2 ("trigger loop": oLite.TriggerLoop,
     // then `go the frame`) without errors.
     assert!(play_error.is_none(), "playback stopped: {play_error:?}");

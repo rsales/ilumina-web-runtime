@@ -383,6 +383,12 @@ impl Vm {
         if let Some((s, h)) = self.program.movie_handler(name) {
             return self.run(host, s, h, None, args);
         }
+        // do "lingo text"
+        if name.eq_ignore_ascii_case("do") {
+            let text = args.first().map(|v| v.to_text()).unwrap_or_default();
+            self.do_text(host, &text).map_err(|e| self.error(e))?;
+            return Ok(Value::Void);
+        }
         // param(n): the n-th argument the running handler received.
         if name.eq_ignore_ascii_case("param") {
             let n = args.first().map(|v| v.to_int()).unwrap_or(0);

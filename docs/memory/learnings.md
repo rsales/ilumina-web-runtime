@@ -195,3 +195,9 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   coexist in one cast; decide per string.
 - **Verify that scripted edits applied**: a Python replace that silently did
   not match left the docs claiming a check that did not exist (now added).
+- **Deterministic replay beats async in the VM**: missing files and dialogs
+  interrupt the run; the page fetches/asks and the whole session (startup,
+  frames, mouse, movie changes, dialog answers) runs again from the start.
+- **`go to movie` must keep old scripts**: objects in globals were created
+  by the previous movie's (shared) casts; the program keeps every movie's
+  scripts and only name lookups are limited to the current movie.

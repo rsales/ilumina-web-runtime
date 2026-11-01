@@ -204,7 +204,36 @@ Slices, each with its own check:
    - Browser: `play_step` at 15 fps (Director's default tempo), files a step
      reads are fetched and the session replayed (step log); `go to movie`
      is reported, not followed yet.
-4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
+   - Owner's browser run of every module (2026-10-31): Home, TimeTravel and
+     MediaCenter render their first screens; playback stopped at `do`.
+     Bible, Encyclopedia, Extras and MyStudyCenter stopped at
+     `set the keyboardFocusSprite` in the registration callback (each movie
+     opened fresh asks to register again). Both fixed.
+4. ⚠️ Events and movies (2026-10-31):
+   - `do "lingo"` (`lingo_vm::doeval`): calls, `obj.method()`, `global` +
+     assignments, expressions. Poster's offline callback now runs.
+   - Mouse (`stage::mouse`): mouseEnter/Leave/Within as the pointer
+     crosses sprites, mouseDown to the sprite under it, mouseUp (or
+     mouseUpOutside) to the clickOn; behaviors, then frame script, then
+     movie scripts. `the mouseDown`, `the clickOn`, `the mouseMember`,
+     `cursor()`. Component test: the pointer over a module highlights it
+     (rollover), the click goes to the Encyclopedia movie.
+   - `go to movie` (`player::switch_movie`): endSprite + stopMovie, the new
+     movie's casts are appended to the same program (objects in globals
+     keep their scripts; name lookups see only the current movie) and the
+     same host (globals, actorList, files, clock). Encyclopedia's startup
+     completes after Home's.
+   - Dialogs wait for the user: the responder returns no answer, the run
+     stops with the dialog's items and geometry, the page draws it over the
+     stage, and the answer replays the session (`PageUser`, answers in
+     order). The owner's saved data still fill the registration dialog.
+   - Page: mouse events on the canvas, Mui dialogs drawn over the stage,
+     movie changes followed (the selector updates). Session log (frames,
+     mouse, movies) replayed after fetching files or answering.
+   - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
+   - ⏳ Registration and prefs are not kept between page loads (the file
+     overlay lives in memory).
+5. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the
    page; `go to movie` loads another module.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
 

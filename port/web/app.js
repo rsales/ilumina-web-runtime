@@ -183,77 +183,237 @@ function applyOwner() {
   else localStorage.removeItem(OWNER_KEY);
 }
 
-async function play(movie) {
-  const t0 = performance.now();
-  const name = movie.split("/").pop();
+// A session: the movie the startup ran from (replays start there).
+let sessionMovie = null;
+
+/** Run (or replay) the session until it ran or a dialog waits. */
+async function runPlay() {
+  const name = sessionMovie.split("/").pop();
   for (let round = 1; ; round++) {
-    if (round > 40) throw new Error("a execução continua pedindo arquivos");
+    if (round > 60) throw new Error("a execução continua pedindo arquivos");
     status(`${name}: executando o Lingo (rodada ${round})…`);
     await new Promise((r) => setTimeout(r)); // let the status paint
-    const n = callStr("play", movie);
-    if (n === 0) break;
-    await addFiles(result().split("\n"), `${name}: arquivos que o Lingo leu`);
+    const rc = callStr("play", sessionMovie);
+    if (rc === 1) {
+      await addFiles(result().split("\n"), "arquivos que o Lingo leu");
+      continue;
+    }
+    await syncMovie();
+    if (rc === 2) {
+      showDialog(result());
+      return "dialog";
+    }
+    return result().split("\n");
   }
-  const steps = result().split("\n");
+}
+
+/** The stage may now show another movie (`go to movie`). */
+async function syncMovie() {
+  callStr("current_movie", "");
+  const movie = result();
+  const name = movie.split("/").pop().replace(/\.dxr$/i, "");
+  if (MOVIES.includes(name)) $("movie").value = name;
+  width = wasm.stage_width();
+  height = wasm.stage_height();
+  const c = $("stage");
+  if (c.width !== width || c.height !== height) {
+    c.width = width;
+    c.height = height;
+  }
+}
+
+async function play(movie) {
+  const t0 = performance.now();
+  sessionMovie = movie;
+  hideDialog();
+  pendingMouse.length = 0;
+  const name = movie.split("/").pop();
+  const r = await runPlay();
+  await drawPlay();
+  if (r === "dialog") {
+    status(`${name}: o programa abriu um diálogo`);
+    return;
+  }
+  afterRun(r, t0);
+}
+
+function afterRun(steps, t0) {
   $("steps").textContent = steps.join("\n");
   const stop = steps.find((s) => !s.endsWith(": OK"));
-  // The first-run registration dialog: the owner types their own data.
-  $("register").hidden = !(stop && stop.includes("Registre Sua C"));
-  await drawPlay();
   const ms = Math.round(performance.now() - t0);
-  status(stop ? `${name}: parou em ${stop.split(":")[0]} (${ms} ms)` : `${name}: partida completa (${ms} ms)`, !!stop);
-  if (!stop) startPlayback(movie);
+  const name = sessionMovie.split("/").pop();
+  status(stop ? `${name}: parou em ${stop.split(":")[0]} (${ms} ms)` : `${name}: executando (${ms} ms)`, !!stop);
+  if (!stop) startPlayback();
+}
+
+// --- dialogs (Mui): drawn over the stage; the answer replays the session ---
+
+function hideDialog() {
+  $("dialog").hidden = true;
+  $("dialog").replaceChildren();
+}
+
+function showDialog(text) {
+  stopPlayback();
+  const [head, ...rows] = text.split("\n");
+  const [title, w, h] = head.split("\t");
+  const box = $("dialog");
+  box.replaceChildren();
+  box.hidden = false;
+  const win = document.createElement("div");
+  win.className = "win";
+  win.style.width = `${Math.max(+w, 200)}px`;
+  win.style.height = `${Math.max(+h, 80) + 24}px`;
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.textContent = title.trim();
+  const x = document.createElement("button");
+  x.textContent = "×";
+  x.title = "Fechar";
+  x.onclick = () => submitDialog(["close"]);
+  bar.append(x);
+  win.append(bar);
+  const body = document.createElement("div");
+  body.className = "body";
+  win.append(body);
+  const fields = [];
+  rows.forEach((row, i) => {
+    const pos = i + 1;
+    const [kind, ix, iy, iw, ih, enabled, value, label] = row.split("\t");
+    const unesc = (t) => (t ?? "").replaceAll("\\r", "\n");
+    const k = kind.toLowerCase();
+    let el = null;
+    if (k === "label") {
+      el = document.createElement("div");
+      el.textContent = unesc(label);
+    } else if (k === "edittext" || k === "editTextLarge".toLowerCase()) {
+      el = document.createElement("input");
+      el.value = unesc(value);
+      fields.push({ pos, el, initial: el.value, kind: "text" });
+    } else if (k === "radiobutton" || k === "checkbox") {
+      el = document.createElement("label");
+      const inp = document.createElement("input");
+      inp.type = k === "radiobutton" ? "radio" : "checkbox";
+      inp.name = "g";
+      inp.checked = value === "1" || value === "true";
+      inp.onclick = () => submitDialog(changes(fields).concat([`click\t${pos}`]));
+      el.append(inp, " ", unesc(label));
+    } else if (k.endsWith("pushbutton")) {
+      el = document.createElement("button");
+      el.textContent = unesc(label);
+      if (k.startsWith("default")) el.className = "default";
+      el.onclick = () => submitDialog(changes(fields).concat([`click\t${pos}`]));
+    } else if (k.startsWith("divider")) {
+      el = document.createElement("hr");
+    }
+    if (!el) return;
+    if (enabled === "0") el.classList.add("disabled"), el.disabled = true;
+    Object.assign(el.style, {
+      position: "absolute", left: `${ix}px`, top: `${iy}px`,
+      width: +iw > 0 ? `${iw}px` : "auto", minHeight: +ih > 0 ? `${Math.min(+ih, 400)}px` : "auto",
+    });
+    body.append(el);
+  });
+  box.append(win);
+  const first = fields[0];
+  if (first) first.el.focus();
+}
+
+/** `set` lines for the text fields the user changed. */
+function changes(fields) {
+  return fields.filter((f) => f.el.value !== f.initial)
+    .map((f) => `set\t${f.pos}\t${f.el.value.replaceAll("\n", "\r")}`);
+}
+
+async function submitDialog(lines) {
+  hideDialog();
+  try {
+    callStr("answer", lines.join("\n"));
+    const t0 = performance.now();
+    const r = await runPlay();
+    await drawPlay();
+    if (r !== "dialog") afterRun(r, t0);
+  } catch (e) {
+    status(e.message, true);
+  }
 }
 
 // --- playback: one frame per tick (Director's default tempo, 15 fps) ---
 
 const TICK_MS = 1000 / 15;
 let ticker = null;
+const pendingMouse = [];
 
 function stopPlayback() {
   if (ticker) clearTimeout(ticker);
   ticker = null;
 }
 
-function startPlayback(movie) {
+/** React to a step/mouse result code; false = playback must stop. */
+async function handle(rc) {
+  if (rc === -1) throw new Error(result());
+  if (rc === 1) {
+    // Files not fetched yet: fetch them and replay the session.
+    await addFiles(result().split("\n"), "arquivos que o Lingo leu");
+    const r = await runPlay();
+    return r !== "dialog";
+  }
+  if (rc === 2) {
+    showDialog(result());
+    return false;
+  }
+  if (rc === 3) {
+    await syncMovie();
+    status(`${$("movie").value}: carregado pelo Lingo`);
+  }
+  return true;
+}
+
+function startPlayback() {
   stopPlayback();
   let last = performance.now();
   let busy = false;
   const tick = async () => {
     if (busy) return;
     busy = true;
+    let go = true;
     try {
-      const now = performance.now();
-      const rc = wasm.play_step(Math.round(now - last));
-      last = now;
-      if (rc === -1) throw new Error(result());
-      if (rc === -2) {
-        status(`o Lingo pediu o filme "${result()}" (troca de filme ainda não implementada)`, true);
-        stopPlayback();
-        return;
+      while (go && pendingMouse.length) {
+        const [kind, x, y] = pendingMouse.shift();
+        go = await handle(wasm.play_mouse(kind, x, y));
       }
-      if (rc === 0) {
-        // The step read files not fetched yet: fetch them and replay.
-        await addFiles(result().split("\n"), "arquivos que o Lingo leu");
-        for (let round = 0; ; round++) {
-          if (round > 40) throw new Error("a execução continua pedindo arquivos");
-          const n = callStr("play", movie);
-          if (n === 0) break;
-          await addFiles(result().split("\n"), "arquivos que o Lingo leu");
-        }
+      if (go) {
+        const now = performance.now();
+        go = await handle(wasm.play_step(Math.round(now - last)));
+        last = now;
       }
       await drawPlay();
       $("frame").value = wasm.play_frame();
     } catch (e) {
       status(e.message, true);
-      stopPlayback();
-      return;
+      go = false;
     } finally {
       busy = false;
     }
-    if (ticker !== null) ticker = setTimeout(tick, TICK_MS);
+    if (go && ticker !== null) ticker = setTimeout(tick, TICK_MS);
+    else stopPlayback();
   };
   ticker = setTimeout(tick, TICK_MS);
+}
+
+/** Mouse on the stage canvas → stage coordinates, queued for the next tick. */
+function stagePoint(ev) {
+  const r = $("stage").getBoundingClientRect();
+  return [Math.round((ev.clientX - r.left) * width / r.width),
+    Math.round((ev.clientY - r.top) * height / r.height)];
+}
+
+function queueMouse(kind, ev) {
+  if (!$("lingo").checked || ticker === null) return;
+  const [x, y] = stagePoint(ev);
+  const last = pendingMouse[pendingMouse.length - 1];
+  if (kind === 0 && last && last[0] === 0) last.splice(1, 2, x, y); // coalesce moves
+  else pendingMouse.push([kind, x, y]);
 }
 
 async function drawPlay() {
@@ -292,6 +452,9 @@ async function main() {
 
   $("movie").onchange = () => openMovie($("movie").value).catch((e) => status(e.message, true));
   $("lingo").onchange = () => openMovie($("movie").value).catch((e) => status(e.message, true));
+  $("stage").addEventListener("mousemove", (e) => queueMouse(0, e));
+  $("stage").addEventListener("mousedown", (e) => queueMouse(1, e));
+  $("stage").addEventListener("mouseup", (e) => queueMouse(2, e));
   loadOwner();
   $("regForm").onsubmit = (ev) => {
     ev.preventDefault();

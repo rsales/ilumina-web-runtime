@@ -35,6 +35,13 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 4 (2026-10-31):** mouse events, `do`, real dialogs in the page
+(answers replay the session) and `go to movie` keeping globals. Component
+test: rollover on Home, click → Encyclopedia starts. Owner: test in the
+browser (move/click modules; the activation dialog should appear as a
+dialog). Next: persist the file overlay (registration/prefs) in the
+browser, mask hit testing, the remaining module startups.
+
 **M2 slice 3, frame loop (2026-10-31):** the browser page works on the Mac
 (whole startup, Home drawn). Frame loop in (`stage::step`, labels, go,
 endSprite, stepFrame); Home holds on frame 2 calling `oLite.TriggerLoop`,

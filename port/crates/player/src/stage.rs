@@ -290,6 +290,80 @@ fn movie_fallback(
     Ok(Value::Void)
 }
 
+/// A mouse event to sprite `n`: its behaviors; if none handles it, the
+/// frame script, then the movie scripts (Director's message hierarchy).
+pub fn sprite_event(
+    vm: &mut Vm,
+    host: &mut PlayerHost,
+    n: u16,
+    msg: &str,
+) -> Result<(), LingoError> {
+    if n > 0 && send_to_sprite(vm, host, n, msg, &[])?.is_some() {
+        return Ok(());
+    }
+    if let Some(Value::Object(o)) = host.frame_script.clone() {
+        if vm.has_method(&o, msg) {
+            vm.call_method(host, msg, vec![Value::Object(o)])?;
+            return Ok(());
+        }
+    }
+    vm.movie_event(host, msg, vec![])?;
+    Ok(())
+}
+
+/// What the mouse did (stage coordinates).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mouse {
+    Move(i64, i64),
+    Down(i64, i64),
+    Up(i64, i64),
+}
+
+/// A mouse event from the page: moves send `mouseLeave`/`mouseEnter` when
+/// the sprite under the pointer changes (`mouseWithin` while it stays);
+/// a press sends `mouseDown` to the sprite under it (the clickOn), the
+/// release `mouseUp` to that sprite if still over it, else
+/// `mouseUpOutside`. Hit testing uses the sprites' rectangles (⏳ matte
+/// ink uses the bitmap's mask in Director).
+pub fn mouse(vm: &mut Vm, host: &mut PlayerHost, ev: Mouse) -> Result<(), LingoError> {
+    let (x, y) = match ev {
+        Mouse::Move(x, y) | Mouse::Down(x, y) | Mouse::Up(x, y) => (x, y),
+    };
+    host.mouse = (x, y);
+    let under = host.sprite_under((x, y), None).unwrap_or(0) as u16;
+    match ev {
+        Mouse::Move(..) => {
+            let before = host.mouse_over;
+            if before != under {
+                host.mouse_over = under;
+                if before > 0 && host.sprites.contains_key(&before) {
+                    send_to_sprite(vm, host, before, "mouseLeave", &[])?;
+                }
+                if under > 0 {
+                    send_to_sprite(vm, host, under, "mouseEnter", &[])?;
+                }
+            } else if under > 0 {
+                send_to_sprite(vm, host, under, "mouseWithin", &[])?;
+            }
+        }
+        Mouse::Down(..) => {
+            host.mouse_down = true;
+            host.click_on = under;
+            sprite_event(vm, host, under, "mouseDown")?;
+        }
+        Mouse::Up(..) => {
+            host.mouse_down = false;
+            let down = host.click_on;
+            if down == under {
+                sprite_event(vm, host, under, "mouseUp")?;
+            } else if down > 0 && host.sprites.contains_key(&down) {
+                send_to_sprite(vm, host, down, "mouseUpOutside", &[])?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A frame event (`prepareFrame`, `enterFrame`, `exitFrame`): every
 /// sprite's behaviors, then the frame script, else the movie scripts.
 pub fn frame_event(vm: &mut Vm, host: &mut PlayerHost, msg: &str) -> Result<(), LingoError> {

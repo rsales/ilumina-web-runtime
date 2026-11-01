@@ -53,10 +53,26 @@ pub fn load_movie(
     movie_file: &str,
     casts: &[(String, String)],
 ) -> Result<(Vm, PlayerHost), String> {
-    let dir = format!("{}Files\\", vfs::APP_DIR);
-    let mut program = Program::default();
+    let mut vm = Vm::new(Program::default());
     let mut host = PlayerHost::new(vfs);
+    add_movie(&mut vm.program, &mut host, movie_file, casts)?;
+    Ok((vm, host))
+}
+
+/// Read a movie's casts into `program` (appended; see
+/// [`Program::begin_movie`]) and the host's member and score tables.
+fn add_movie(
+    program: &mut Program,
+    host: &mut PlayerHost,
+    movie_file: &str,
+    casts: &[(String, String)],
+) -> Result<(), String> {
+    let dir = format!("{}Files\\", vfs::APP_DIR);
+    program.begin_movie();
     host.movie_name = movie_file.to_string();
+    host.members.clear();
+    host.cast_libs.clear();
+    host.score = None;
     let mut loaded = Vec::new();
     for (i, (name, file)) in casts.iter().enumerate() {
         let lib = i as u16 + 1;
@@ -98,5 +114,33 @@ pub fn load_movie(
                 .map(std::rc::Rc::new);
         }
     }
-    Ok((Vm::new(program), host))
+    Ok(())
+}
+
+/// `go to movie`: the current movie ends (`endSprite` for its sprites,
+/// `stopMovie`) and the next one is loaded into the same VM and host, so
+/// globals, the actorList, the virtual file system (prefs, registration)
+/// and the clock carry over, as in Director. The caller then runs
+/// [`stage::start_movie`]-like events for the new movie.
+pub fn switch_movie(
+    vm: &mut Vm,
+    host: &mut PlayerHost,
+    movie_file: &str,
+    casts: &[(String, String)],
+) -> Result<(), String> {
+    let on_stage: Vec<u16> = host.sprites.keys().copied().collect();
+    for n in on_stage {
+        stage::send_to_sprite(vm, host, n, "endSprite", &[]).map_err(|e| e.message)?;
+    }
+    vm.movie_event(host, "stopMovie", vec![])
+        .map_err(|e| e.message)?;
+    host.sprites.clear();
+    host.frame_script = None;
+    host.frame_script_span = None;
+    host.frame = 0;
+    host.go_target = None;
+    host.go_movie = None;
+    host.mouse_over = 0;
+    host.images.borrow_mut().clear();
+    add_movie(&mut vm.program, host, movie_file, casts)
 }

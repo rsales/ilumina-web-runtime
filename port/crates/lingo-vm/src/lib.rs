@@ -7,6 +7,7 @@
 
 pub mod builtins;
 pub mod chunk;
+pub mod doeval;
 pub mod literal;
 pub mod program;
 pub mod value;
@@ -158,6 +159,36 @@ mod tests {
             }],
         );
         assert_eq!(run(p, "f", vec![]).unwrap().to_int(), 17);
+    }
+
+    #[test]
+    fn do_runs_calls_built_from_strings() {
+        // Regression: Poster.stepFrame does `do "PostCallback(\"…\")"`;
+        // `do` was not implemented (Home's playback stopped).
+        let p = program(
+            ScriptKind::Movie,
+            &["cb", "g"],
+            &[],
+            vec![],
+            vec![H {
+                name: "cb",
+                args: &["a"],
+                locals: 0,
+                code: vec![(GETPARAM, 0), (SETGLOBAL, 1), (RET, 0)],
+            }],
+        );
+        let mut vm = Vm::new(p);
+        vm.do_text(&mut NoHost, "cb(\"ok\" & \"!\")").unwrap();
+        assert_eq!(vm.global("g").to_text(), "ok!");
+        vm.do_text(&mut NoHost, "cb 3 + 4").unwrap();
+        assert_eq!(vm.global("g").to_int(), 7);
+        vm.do_text(&mut NoHost, "global g\rg = [1, #a]").unwrap();
+        assert_eq!(vm.global("g").to_string(), "[1, #a]");
+        // Without `global`, an assignment stays local to the do.
+        vm.do_text(&mut NoHost, "g = 5").unwrap();
+        assert_eq!(vm.global("g").to_string(), "[1, #a]");
+        vm.do_text(&mut NoHost, "").unwrap();
+        assert!(vm.do_text(&mut NoHost, "cb(1) ]").is_err());
     }
 
     #[test]
