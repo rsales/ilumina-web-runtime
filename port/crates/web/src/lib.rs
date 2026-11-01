@@ -51,6 +51,9 @@ pub struct App {
     movie: String,
     /// The startup completed, so playback may continue.
     started: bool,
+    /// Files the program changed in earlier page sessions
+    /// (`Vfs::export_state`, kept by the page in browser storage).
+    saved_state: String,
     pub frame: Vec<u8>,
 }
 
@@ -164,6 +167,7 @@ impl App {
             start: None,
             movie: String::new(),
             started: false,
+            saved_state: String::new(),
             frame: Vec::new(),
         }
     }
@@ -232,6 +236,22 @@ impl App {
         Ok(())
     }
 
+    /// Files the program wrote in an earlier page session (from
+    /// [`App::state`]): every run starts with them, like a Windows install
+    /// finds its own files again. Takes effect from the next `play`.
+    pub fn set_state(&mut self, text: &str) {
+        self.saved_state = text.to_string();
+    }
+
+    /// The files the current run changed so far (for the page to keep), or
+    /// the saved state when nothing ran.
+    pub fn state(&self) -> String {
+        match &self.run {
+            Some((_, host)) => host.vfs.export_state(),
+            None => self.saved_state.clone(),
+        }
+    }
+
     /// Set (or clear, with empty values) the owner's registration data.
     pub fn set_owner(&mut self, name: &str, email: &str, cep: &str, code: &str) {
         self.owner = (!name.is_empty() && !email.is_empty()).then(|| {
@@ -259,7 +279,9 @@ impl App {
             files: self.files.clone(),
             missing: self.missing.clone(),
         };
-        let vfs = player::Vfs::new(Box::new(disc), self.manifest.iter().map(|e| e.path.clone()));
+        let mut vfs =
+            player::Vfs::new(Box::new(disc), self.manifest.iter().map(|e| e.path.clone()));
+        vfs.import_state(&self.saved_state);
         let (_, name) = movie.rsplit_once('/').unwrap_or(("", movie));
         let bytes = self
             .files
@@ -906,6 +928,26 @@ pub extern "C" fn play_mouse(kind: u32, x: i32, y: i32) -> i32 {
     step_code(APP.with(|a| a.borrow_mut().play_mouse(m)))
 }
 
+/// The files the program changed (`Vfs::export_state` lines, in the result
+/// buffer), for the page to keep in browser storage.
+#[no_mangle]
+pub extern "C" fn state() -> i32 {
+    let s = APP.with(|a| a.borrow().state());
+    set_result(&s);
+    0
+}
+
+/// Start every run with files saved from an earlier session.
+///
+/// # Safety
+/// `ptr`/`len` must be valid UTF-8 in linear memory.
+#[no_mangle]
+pub unsafe extern "C" fn set_state(ptr: *const u8, len: usize) -> i32 {
+    let s = str_arg(ptr, len);
+    APP.with(|a| a.borrow_mut().set_state(&s));
+    0
+}
+
 /// The disc path of the movie on the stage (in the result buffer).
 #[no_mangle]
 pub extern "C" fn current_movie() -> i32 {
@@ -1098,6 +1140,14 @@ mod tests {
                 app.play_render(&PageFonts::default()).unwrap();
                 assert_eq!(app.frame.len(), 1024 * 768 * 4);
                 assert!(app.play_step(66).unwrap_err().contains("did not complete"));
+                // What the run wrote is kept for the next page load, and a
+                // new session starts with it (regression: lost on reload).
+                let state = app.state();
+                assert!(state.contains("iLuminaInfo.txt"), "{state}");
+                app.set_state(&format!("{state}\nW\tC:\\kept.txt\t6869"));
+                app.answer("close");
+                let _ = app.play(movie).unwrap();
+                assert!(app.state().contains("C:\\kept.txt\t6869"));
             })
             .unwrap()
             .join()

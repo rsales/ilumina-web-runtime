@@ -184,6 +184,49 @@ function applyOwner() {
   else localStorage.removeItem(OWNER_KEY);
 }
 
+// --- the files the program writes (prefs, registration, activation) ---
+// Kept in this browser like the Windows disk keeps them, next to the owner's
+// data (sessionStorage; localStorage too when "lembrar" is checked). The
+// program finds its own files again; nothing is reset or altered (ADR 0005).
+// Regression: every page load started as a fresh install.
+
+const STATE_KEY = "ilumina-state";
+let savedState = "";
+let lastSave = 0;
+
+function store(kind) {
+  try {
+    return kind === "local" ? localStorage : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function loadState() {
+  let raw = null;
+  try {
+    raw = store("session")?.getItem(STATE_KEY) ?? store("local")?.getItem(STATE_KEY);
+  } catch { /* storage blocked: start fresh */ }
+  savedState = raw ?? "";
+  callStr("set_state", savedState);
+}
+
+/** Keep what the program wrote (call after reading the result buffer). */
+function saveState() {
+  lastSave = performance.now();
+  callStr("state", "");
+  const v = result();
+  if (v === savedState) return;
+  savedState = v;
+  try {
+    store("session")?.setItem(STATE_KEY, v);
+    if ($("regRemember").checked) store("local")?.setItem(STATE_KEY, v);
+    else store("local")?.removeItem(STATE_KEY);
+  } catch (e) {
+    console.warn("ilumina: could not keep the program's files", e);
+  }
+}
+
 // A session: the movie the startup ran from (replays start there).
 let sessionMovie = null;
 
@@ -203,6 +246,7 @@ async function runPlay() {
     // Regression: the steps log showed the movie path instead of the steps.
     const text = result();
     await syncMovie();
+    saveState();
     if (rc === 2) {
       showDialog(text);
       return "dialog";
@@ -428,6 +472,7 @@ function startPlayback() {
       }
       await drawPlay();
       $("frame").value = wasm.play_frame();
+      if (performance.now() - lastSave > 3000) saveState();
     } catch (e) {
       status(e.message, true);
       go = false;
@@ -495,6 +540,7 @@ async function main() {
   $("stage").addEventListener("mousedown", (e) => queueMouse(1, e));
   $("stage").addEventListener("mouseup", (e) => queueMouse(2, e));
   loadOwner();
+  loadState();
   $("regForm").onsubmit = (ev) => {
     ev.preventDefault();
     applyOwner();

@@ -274,6 +274,62 @@ impl Vfs {
         existed
     }
 
+    /// What the program changed, as text lines to keep between sessions
+    /// (the browser's storage stands in for the Windows disk): `W⇥path⇥hex`
+    /// for a written file, `D⇥path` for a deleted one, `P⇥path⇥at⇥hex` for
+    /// bytes patched into a disc file. Nothing is reset or altered: the
+    /// program finds its own files again, as on Windows.
+    pub fn export_state(&self) -> String {
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let mut out = Vec::new();
+        for (p, b) in self.overlay.values() {
+            out.push(format!("W\t{p}\t{}", hex(b)));
+        }
+        for d in &self.deleted {
+            out.push(format!("D\t{d}"));
+        }
+        let mut patched: Vec<_> = self.patches.iter().collect();
+        patched.sort_by(|a, b| a.0.cmp(b.0));
+        for (p, list) in patched {
+            for (at, b) in list {
+                out.push(format!("P\t{p}\t{at}\t{}", hex(b)));
+            }
+        }
+        out.join("\n")
+    }
+
+    /// Apply [`Vfs::export_state`] lines (unknown or malformed lines are
+    /// skipped). Returns the number of lines applied.
+    pub fn import_state(&mut self, text: &str) -> usize {
+        let unhex = |h: &str| -> Option<Vec<u8>> {
+            if h.len() % 2 != 0 {
+                return None;
+            }
+            (0..h.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok())
+                .collect()
+        };
+        let mut n = 0;
+        for line in text.lines() {
+            let f: Vec<&str> = line.split('\t').collect();
+            let ok = match f.as_slice() {
+                ["W", p, h] => unhex(h).map(|b| self.write(p, b)).is_some(),
+                ["D", p] => {
+                    self.delete(p);
+                    true
+                }
+                ["P", p, at, h] => match (at.parse::<usize>(), unhex(h)) {
+                    (Ok(at), Some(b)) => self.patch(p, at, &b),
+                    _ => false,
+                },
+                _ => false,
+            };
+            n += ok as usize;
+        }
+        n
+    }
+
     /// Files written by the program (to persist between sessions).
     pub fn written(&self) -> impl Iterator<Item = (&str, &[u8])> {
         self.overlay
@@ -496,6 +552,27 @@ mod tests {
         let home = "C:\\Program Files\\iLuminaPO\\Files\\Home.dxr";
         assert_eq!(v.read_shared(home).as_deref(), Some(&b"dxr"[..]));
         assert_eq!(v.read_at("C:\\nope", 0, 1), None);
+    }
+
+    #[test]
+    fn state_round_trips_between_sessions() {
+        // Regression: registration and activation were lost on every page
+        // load (the overlay lived in memory only).
+        let mut v = vfs();
+        let prefs = "C:\\Program Files\\iLuminaPO\\Prefs\\p.dat";
+        v.write(prefs, vec![0, 1, 0xff, b'\t']);
+        v.delete("D:\\Autorun.inf");
+        let jpg = "C:\\Program Files\\iLuminaPO\\Files\\Media\\Photos\\a.jpg";
+        v.patch(jpg, 1, b"P");
+        let state = v.export_state();
+        let mut w = vfs();
+        assert!(w.import_state(&state) >= 4);
+        assert_eq!(w.read(prefs).as_deref(), Some(&[0, 1, 0xff, b'\t'][..]));
+        assert!(!w.exists("D:\\Autorun.inf"));
+        assert_eq!(w.read(jpg).as_deref(), Some(&b"jPg"[..]));
+        assert_eq!(w.export_state(), state);
+        // Malformed lines are skipped.
+        assert_eq!(w.import_state("W\tx\tzz\nbogus\nP\ty\t1"), 0);
     }
 
     #[test]
