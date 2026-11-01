@@ -1071,6 +1071,21 @@ mod tests {
             .unwrap();
     }
 
+    /// `current_movie` writes the shared result buffer: the page must read a
+    /// call's result before syncing the movie.
+    // Regression: the steps log showed "cd1/Program/Files/Home.dxr" and
+    // playback never started.
+    #[test]
+    fn page_reads_results_before_syncing_the_movie() {
+        let js = include_str!("../../../web/app.js");
+        let run = &js[js.find("async function runPlay").unwrap()..];
+        let run = &run[..run.find("\n}\n").unwrap()];
+        let read = run.find("const text = result();").expect("result read in runPlay");
+        let sync = run.find("await syncMovie();").expect("syncMovie in runPlay");
+        assert!(read < sync);
+        assert!(!run[sync..].contains("result()"), "result() used after syncMovie");
+    }
+
     /// End to end over the real discs: the same calls the page makes.
     #[test]
     fn loads_and_renders_home_from_the_discs() {

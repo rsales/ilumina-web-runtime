@@ -198,12 +198,15 @@ async function runPlay() {
       await addFiles(result().split("\n"), "arquivos que o Lingo leu");
       continue;
     }
+    // Read the result before `syncMovie`, which uses the same buffer.
+    // Regression: the steps log showed the movie path instead of the steps.
+    const text = result();
     await syncMovie();
     if (rc === 2) {
-      showDialog(result());
+      showDialog(text);
       return "dialog";
     }
-    return result().split("\n");
+    return text.split("\n");
   }
 }
 
