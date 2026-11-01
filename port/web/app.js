@@ -339,18 +339,6 @@ function showDialog(text) {
       el = document.createElement("input");
       el.value = unesc(value);
       fields.push({ pos, el, initial: el.value, kind: "text" });
-      // The program reacts while the user types (`itemChanged`): it enables
-      // "Continuar" once the activation code is in. Send the edit after a
-      // pause and redraw the dialog it leaves. Regression: edits only went
-      // out with a button click, so the disabled button never came on.
-      let timer = null;
-      el.oninput = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          const lines = changes(fields);
-          if (lines.length) submitDialog(lines, pos);
-        }, 500);
-      };
     } else if (k === "radiobutton" || k === "checkbox") {
       el = document.createElement("label");
       const inp = document.createElement("input");
@@ -369,7 +357,15 @@ function showDialog(text) {
       el = document.createElement("hr");
     }
     if (!el) return;
-    if (enabled === "0") el.classList.add("disabled"), el.disabled = true;
+    // A disabled button stays clickable: the click goes out after the
+    // edits (`itemChanged`), and the player drops it if the program left
+    // the button disabled. Regression: sending each edit live replayed the
+    // whole run while typing, so the fields could not be filled in; before
+    // that, the program's "enable Continuar on typing" never ran.
+    if (enabled === "0") {
+      el.classList.add("disabled");
+      if (!k.endsWith("pushbutton")) el.disabled = true;
+    }
     Object.assign(el.style, {
       position: "absolute", left: `${ix}px`, top: `${iy}px`,
       width: +iw > 0 ? `${iw}px` : "auto", minHeight: +ih > 0 ? `${Math.min(+ih, 400)}px` : "auto",

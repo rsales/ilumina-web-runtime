@@ -769,11 +769,19 @@ impl PlayerHost {
     /// and font/size/style set from Lingo.
     pub fn measure(&self, lib: i64, number: i64) -> Option<(director::text::Measure, i64)> {
         let st = self.styled_text(lib, number)?;
-        let width = self
-            .sprites
-            .values()
-            .find(|s| s.member == Some((lib, number)))
-            .map(|s| s.width)
+        let boxed = self.member_info(lib, number).and_then(|m| {
+            m.style
+                .iter()
+                .find(|(k, _)| k == "boxwidth")
+                .map(|(_, v)| v.to_int())
+        });
+        let width = boxed
+            .or_else(|| {
+                self.sprites
+                    .values()
+                    .find(|s| s.member == Some((lib, number)))
+                    .map(|s| s.width)
+            })
             .filter(|w| *w > 0)
             .unwrap_or(10_000);
         Some((
@@ -2322,6 +2330,31 @@ impl lingo_vm::Host for PlayerHost {
                     }
                 }
             }
+            // A field/text member's box: `rect`, `width`, `height` (kept as
+            // width/height for measuring). Regression: Home sets
+            // `member.rect` and `member.width` on text members.
+            if matches!(lname.as_str(), "rect" | "width" | "height") {
+                if let Some(m) = self.members.iter_mut().find(|m| {
+                    m.lib as i64 == *lib
+                        && m.number as i64 == *number
+                        && matches!(m.kind.as_str(), "field" | "text")
+                }) {
+                    let mut set = |k: &str, v: i64| match m.style.iter_mut().find(|(n, _)| n == k) {
+                        Some(slot) => slot.1 = Value::Int(v),
+                        None => m.style.push((k.to_string(), Value::Int(v))),
+                    };
+                    match (lname.as_str(), value) {
+                        ("rect", Value::Rect(l, t, r, b)) => {
+                            set("boxwidth", (r - l) as i64);
+                            set("boxheight", (b - t) as i64);
+                        }
+                        ("width", v) => set("boxwidth", v.to_int()),
+                        ("height", v) => set("boxheight", v.to_int()),
+                        _ => return Ok(false),
+                    }
+                    return Ok(true);
+                }
+            }
             if MEMBER_STYLE_PROPS.contains(&lname.as_str()) {
                 if let Some(m) = self
                     .members
@@ -2945,6 +2978,28 @@ mod tests {
         .unwrap();
         assert_eq!(host.sounds[&2].to_text(), "BennyHill");
         assert!(MEMBER_STYLE_PROPS.contains(&"usehypertextstyles"));
+        // Home sets a text member's rect and width.
+        host.members.push(MemberInfo {
+            lib: 5,
+            number: 2,
+            name: String::new(),
+            kind: "text".into(),
+            script: None,
+            bitmap: None,
+            text: Some("abc def".into()),
+            styled: None,
+            file_name: None,
+            style: vec![],
+        });
+        let t = HostRef::Member { lib: 5, number: 2 };
+        assert!(host
+            .set_prop(&mut vm, &t, "rect", &Value::Rect(0.0, 0.0, 30.0, 40.0))
+            .unwrap());
+        assert_eq!(host.measure(5, 2).unwrap().1, 30);
+        assert!(host
+            .set_prop(&mut vm, &t, "width", &Value::Int(90))
+            .unwrap());
+        assert_eq!(host.measure(5, 2).unwrap().1, 90);
         // Extras sets a field's scrollTop.
         assert!(MEMBER_STYLE_PROPS.contains(&"scrolltop"));
         host.members.push(MemberInfo {

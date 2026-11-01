@@ -306,7 +306,19 @@ Slices, each with its own check:
      "Código de Ativação:"; the original Lingo accepted the owner's own code
      and showed the alert "Obrigado por ativar o iLúmina!". Home keeps
      playing (frame 2). First real activation in the Rust port (ADR 0005:
-     the program checked the code; nothing bypassed). ⏳ Same in the page.
+     the program checked the code; nothing bypassed).
+   - ✅ Owner's browser run (2026-11-01, 0e65ccd): with the owner's data in
+     the page form, registration and activation ran with no dialog shown;
+     after a reload Home opened directly (the program found its own files);
+     Encyclopedia and Viagem no Tempo opened. ❌ Typing into the page's
+     registration dialog did not work (each pause replayed the whole run,
+     the fields were disabled meanwhile; dark inputs). ❌ Status:
+     `set member.rect` and `set member.width` on text members.
+   - Fixed: no live replay while typing; edits go out with the button click
+     and disabled buttons stay clickable (the player drops the click if the
+     program left the button disabled after `itemChanged`); white inputs.
+     Text members take `rect`/`width`/`height` (box width for measuring).
+     Tests (host; page logic by review). ⏳ owner.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 
