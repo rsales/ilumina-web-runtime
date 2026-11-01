@@ -707,6 +707,25 @@ impl director::Files for GatedFiles {
     }
 }
 
+/// `KEY=value` lines of a `.env` file (comments and blank lines skipped,
+/// optional `export `, matching quotes removed; spaces kept).
+fn dotenv_values(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let l = l.strip_prefix("export ").unwrap_or(l);
+            let (k, v) = l.split_once('=')?;
+            let v = v.trim();
+            let v = match (v.chars().next(), v.chars().last()) {
+                (Some(q @ ('"' | '\'')), Some(e)) if q == e && v.len() >= 2 => &v[1..v.len() - 1],
+                _ => v,
+            };
+            Some((k.trim().to_string(), v.to_string()))
+        })
+        .collect()
+}
+
 /// A responder that prints each dialog as the program shows it and the
 /// answer given (owner values masked), to see why a dialog repeats.
 struct Logged<R> {
@@ -793,8 +812,24 @@ fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error:
     let (mut vm, mut host) = player::load_movie(vfs, movie, &casts)?;
     host.fonts = Box::new(fonts::HostFonts::new());
     host.today = player::host::system_today();
-    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let dotenv =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.env"))
+            .map(|t| dotenv_values(&t))
+            .unwrap_or_default();
+    // The environment wins; else the repository's `.env` (values never
+    // printed). Regression: `source .env` in zsh broke on a name with
+    // spaces, so the run had no owner data.
+    let get = |k: &str| {
+        std::env::var(k)
+            .ok()
+            .or_else(|| dotenv.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()))
+            .filter(|v| !v.is_empty())
+    };
     let mut secrets = Vec::new();
+    host.responder = Box::new(Logged {
+        inner: player::mui::CloseAll,
+        secrets: Vec::new(),
+    });
     if let (Some(name), Some(email)) = (get("ILUMINA_REG_NAME"), get("ILUMINA_REG_EMAIL")) {
         let cep = get("ILUMINA_REG_CEP").unwrap_or_default();
         let code = get("ILUMINA_ACTIVATION_CODE").unwrap_or_default();
@@ -1037,6 +1072,22 @@ fn lingo_dump(discs: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>
     print!("{summary}");
     println!("-> {}", out.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod dotenv_tests {
+    #[test]
+    fn dotenv_lines_keep_spaces() {
+        // Regression: a name with spaces broke `source .env` in zsh.
+        let v = super::dotenv_values("# c\nA=Two Words\nexport B=\"q x\"\n\nC='y'\nbad\n");
+        let want = [("A", "Two Words"), ("B", "q x"), ("C", "y")];
+        assert_eq!(
+            v,
+            want.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect::<Vec<_>>()
+        );
+    }
 }
 
 #[cfg(test)]
