@@ -171,7 +171,15 @@ Slices, each with its own check:
      slideshow/rollover (frame loop + mouse).
    - The startup reads 58 disc files, 176 MB (every database opened whole,
      BLOBs included). For the browser: open Valentina BLOBs lazily.
-   - Next: wire `player` into the browser page (fetch the files the run
+   - ⏳ Browser (2026-10-31, built on the Mac only): `web::App::play` runs
+     the startup over the files the page added; files the run reads that are
+     missing come back as a list, the page fetches them and runs again from
+     the start (Lingo is deterministic). `play_render` draws `draws()`,
+     fetching linked media the same way. Registration form for the owner's
+     data in the page. Native test `play_fetch_loop_over_the_discs` runs the
+     same loop (no owner data: stops at the registration dialog). 64 MB wasm
+     stack (`port/.cargo/config.toml`).
+   - Before: wire `player` into the browser page (fetch the files the run
      needs, run the startup, draw `draws()`), then the frame loop (`go`,
      labels, endSprite, stepFrame) and mouse events.
 4. ⏳ Events: mouse (`mouseUp`, `mouseEnter`, rollovers) and keyboard from the

@@ -33,7 +33,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `locToCharPos`, member height) from the renderer's layout; Home's first
   frame now runs its whole startup. The run-time stage renders (linked
   JPEG/BMP media, Lingo's text styles); `xtask play` runs a movie's startup
-  and writes a PNG.
+  and writes a PNG. The browser page runs the movie's Lingo (fetching the
+  files the run reads) and asks for the owner's registration data in a form.
 
 ### Fixed
 - Port: `the last char/word/…` (index -30000) selected the first one; empty

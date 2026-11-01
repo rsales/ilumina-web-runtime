@@ -1,6 +1,6 @@
 [package]
 name = "web"
-description = "Browser player: the director stage behind a small wasm ABI (no wasm-bindgen)"
+description = "Browser player: the director stage and the Lingo player behind a small wasm ABI (no wasm-bindgen)"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -13,3 +13,5 @@ crate-type = ["cdylib", "rlib"]
 rifx = { path = "../rifx" }
 director = { path = "../director" }
 discs = { path = "../discs" }
+player = { path = "../player" }
+lingo-vm = { path = "../lingo-vm" }

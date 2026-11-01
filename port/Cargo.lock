@@ -291,6 +291,8 @@ version = "0.0.1"
 dependencies = [
  "director",
  "discs",
+ "lingo-vm",
+ "player",
  "rifx",
 ]
 

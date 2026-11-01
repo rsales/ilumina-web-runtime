@@ -35,6 +35,13 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M2 slice 3, browser (2026-10-31):** the page runs the player (Lingo
+checkbox, default on): fetch loop for the files the run reads, registration
+form (owner's data, browser-only), draws the run-time stage. Native loop test
+passes; the wasm build is untested here (no wasm target in the sandbox) —
+owner builds and opens it on the Mac. Known cost: each round reopens every
+database (176 MB copies); lazy BLOBs next.
+
 **M2 slice 3, render (2026-10-31):** owner run: whole startup OK. The
 run-time stage renders (`host.draws()` → `Stage::render_draws`), incl.
 linked JPEG/BMP; `xtask play <discs> Home.dxr` (owner's `ILUMINA_REG_*`)

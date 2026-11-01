@@ -51,8 +51,18 @@ cargo build --release -p web --target wasm32-unknown-unknown
 cargo run --release -p xtask -- serve ../../discs   # → http://localhost:8800/
 ```
 
-The page lists the modules, renders any score frame (← → keys, slider) and
-keeps the movie and frame in the URL (`#Bible/30`). The server listens on
+With **Lingo** checked (the default) the page runs the movie's startup with
+its original Lingo and draws the stage as Lingo left it. The run asks for the
+disc files it reads (databases, linked images); the page fetches them and runs
+again until nothing is missing (Home: about 60 files, 176 MB on the first
+run). On first run the program asks for registration: the page shows a form
+for the owner's own name, e-mail and CEP, kept only in that browser
+(`sessionStorage`, or `localStorage` with "lembrar"), never generated.
+Unchecked, the page renders any score frame (← → keys, slider) and keeps the
+movie and frame in the URL (`#Bible/30`).
+
+`port/.cargo/config.toml` gives the wasm module a 64 MB stack: the Lingo VM
+recurses natively. The server listens on
 127.0.0.1 only and serves the page, the wasm module and the disc files listed
 in the manifest; the wasm side checks every file's hash again. Fonts come from
 the browser (on macOS: Verdana, Georgia… from the system).

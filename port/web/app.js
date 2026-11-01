@@ -98,6 +98,7 @@ async function addFile(rel) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${rel}: HTTP ${r.status}`);
   const bytes = new Uint8Array(await r.arrayBuffer());
+  sizes.set(rel, bytes.length);
   const p = wasm.alloc(bytes.length);
   mem().set(bytes, p);
   const [sp, sl] = putStr(rel);
@@ -106,6 +107,23 @@ async function addFile(rel) {
   if (rc < 0) throw new Error(result());
   added.add(rel);
 }
+
+/** Fetch several files (a few at a time), reporting progress. */
+async function addFiles(list, label) {
+  let done = 0, bytes = 0;
+  const queue = list.filter((f) => !added.has(f));
+  const worker = async () => {
+    while (queue.length) {
+      const rel = queue.shift();
+      await addFile(rel);
+      done++;
+      bytes += sizes.get(rel) ?? 0;
+      status(`${label}: ${done}/${list.length} arquivos, ${(bytes / 1048576).toFixed(0)} MB`);
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+const sizes = new Map();
 
 // --- UI ---
 
@@ -134,7 +152,67 @@ async function openMovie(name) {
   c.height = height;
   $("frame").max = $("slider").max = Math.max(frames, 1);
   status(`${name}: ${casts.length} casts, ${frames} frames, ${Math.round(performance.now() - t0)} ms`);
-  draw(1);
+  if ($("lingo").checked) {
+    await play(movie);
+  } else {
+    draw(1);
+  }
+}
+
+// --- Lingo: run the movie's startup, fetching what it reads ---
+
+const OWNER_KEY = "ilumina-owner";
+
+function loadOwner() {
+  // Kept only in this browser (sessionStorage, or localStorage when the
+  // owner asks to remember); never sent anywhere.
+  const raw = sessionStorage.getItem(OWNER_KEY) ?? localStorage.getItem(OWNER_KEY);
+  if (!raw) return;
+  const [n, e, c] = raw.split("\n");
+  $("regName").value = n ?? "";
+  $("regEmail").value = e ?? "";
+  $("regCep").value = c ?? "";
+}
+
+function applyOwner() {
+  const v = [$("regName").value, $("regEmail").value, $("regCep").value].join("\n");
+  callStr("set_owner", v);
+  sessionStorage.setItem(OWNER_KEY, v);
+  if ($("regRemember").checked) localStorage.setItem(OWNER_KEY, v);
+  else localStorage.removeItem(OWNER_KEY);
+}
+
+async function play(movie) {
+  const t0 = performance.now();
+  const name = movie.split("/").pop();
+  for (let round = 1; ; round++) {
+    if (round > 40) throw new Error("a execução continua pedindo arquivos");
+    status(`${name}: executando o Lingo (rodada ${round})…`);
+    await new Promise((r) => setTimeout(r)); // let the status paint
+    const n = callStr("play", movie);
+    if (n === 0) break;
+    await addFiles(result().split("\n"), `${name}: arquivos que o Lingo leu`);
+  }
+  const steps = result().split("\n");
+  $("steps").textContent = steps.join("\n");
+  const stop = steps.find((s) => !s.endsWith(": OK"));
+  // The first-run registration dialog: the owner types their own data.
+  $("register").hidden = !(stop && stop.includes("Registre Sua C"));
+  await drawPlay();
+  const ms = Math.round(performance.now() - t0);
+  status(stop ? `${name}: parou em ${stop.split(":")[0]} (${ms} ms)` : `${name}: partida completa (${ms} ms)`, !!stop);
+}
+
+async function drawPlay() {
+  for (let i = 0; i < 5; i++) {
+    const drawn = wasm.play_render();
+    if (drawn < 0) throw new Error(result());
+    const n = wasm.missing();
+    if (n === 0) break;
+    await addFiles(result().split("\n"), "imagens vinculadas");
+  }
+  const px = new Uint8ClampedArray(wasm.memory.buffer, wasm.frame_ptr(), width * height * 4);
+  $("stage").getContext("2d").putImageData(new ImageData(px.slice(), width, height), 0, 0);
 }
 
 function draw(frame) {
@@ -160,6 +238,14 @@ async function main() {
   if (MOVIES.includes(hashMovie)) $("movie").value = hashMovie;
 
   $("movie").onchange = () => openMovie($("movie").value).catch((e) => status(e.message, true));
+  $("lingo").onchange = () => openMovie($("movie").value).catch((e) => status(e.message, true));
+  loadOwner();
+  $("regForm").onsubmit = (ev) => {
+    ev.preventDefault();
+    applyOwner();
+    openMovie($("movie").value).catch((e) => status(e.message, true));
+  };
+  if ($("regName").value && $("regEmail").value) applyOwner();
   $("frame").onchange = () => draw(+$("frame").value);
   $("slider").oninput = () => draw(+$("slider").value);
   $("prev").onclick = () => draw(+$("frame").value - 1);

@@ -14,6 +14,10 @@
   #status { margin-left: auto; color: #9a9; font-variant-numeric: tabular-nums; }
   #status.error { color: #f88; }
   main { display: grid; place-items: center; padding: 12px; }
+  #register { padding: 8px 12px; background: #2a2414; }
+  #register form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #log { padding: 0 12px; color: #999; }
+  #log pre { white-space: pre-wrap; margin: 4px 0; }
   canvas { background: #000; image-rendering: pixelated; max-width: 100%; height: auto; }
 </style>
 </head>
@@ -24,8 +28,21 @@
   <label>Frame <input id="frame" type="number" min="1" value="1"></label>
   <button id="next" title="Próximo frame (→)">▶</button>
   <input id="slider" type="range" min="1" value="1">
+  <label title="Executa o Lingo original do filme (partida do Home)"><input id="lingo" type="checkbox" checked> Lingo</label>
   <span id="status">carregando…</span>
 </header>
+<section id="register" hidden>
+  <form id="regForm">
+    <strong>Registre sua cópia</strong> — na primeira execução o iLúmina pede os dados de registro do dono.
+    Ficam só neste navegador.
+    <label>Nome <input id="regName" autocomplete="name" required></label>
+    <label>E-mail <input id="regEmail" type="email" autocomplete="email" required></label>
+    <label>CEP <input id="regCep" autocomplete="postal-code"></label>
+    <label><input id="regRemember" type="checkbox"> lembrar</label>
+    <button>Registrar e executar</button>
+  </form>
+</section>
+<details id="log"><summary>Partida</summary><pre id="steps"></pre></details>
 <main><canvas id="stage" width="1024" height="768"></canvas></main>
 <script type="module" src="app.js"></script>
 </body>

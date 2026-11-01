@@ -1,0 +1,5 @@
+# The Lingo VM recurses natively (one Rust frame per Lingo handler call), and
+# Home's startup goes deep. wasm32's default 1 MB stack overflows; give the
+# browser player 64 MB (linear memory, reserved at the start).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-z", "-C", "link-arg=stack-size=67108864"]
