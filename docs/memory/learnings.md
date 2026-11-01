@@ -183,3 +183,9 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   trees were removed from the sandbox (`/home/claude/bwroot`, `/tmp/bw`).
 - **xtask outputs go to the repository's `work/`** whatever the current
   directory (they used to land in `<cwd>/work`, e.g. `port/work/`).
+- **`-30000` is "the last" in compiled chunk expressions** (`delete the last
+  char of s`). Treating it as an index silently changed strings everywhere.
+- **Uncompressed 16/32-bit `BITD` is interleaved**; only RLE data is planar
+  per row. Small icons are stored uncompressed.
+- **Compare against the owner's Boxedwine screenshot of the same state**:
+  three real bugs showed up in one comparison of Home.

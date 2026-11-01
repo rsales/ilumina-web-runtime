@@ -58,10 +58,13 @@ fn every_text_parses() {
                 }
                 empty += t.text.is_empty() as usize;
                 styled_runs += t.runs.len();
+                // Runs are non-empty, except the single zero-length run that
+                // keeps an empty member's style.
+                let n = t.text.chars().count();
                 assert!(t
                     .runs
                     .iter()
-                    .all(|r| r.start < r.end && r.end <= t.text.chars().count()));
+                    .all(|r| (r.start < r.end || n == 0) && r.end <= n));
                 for r in &t.runs {
                     *fonts
                         .entry(format!("{} {}", r.style.font, r.style.size))

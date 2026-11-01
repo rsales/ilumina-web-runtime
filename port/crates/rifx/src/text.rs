@@ -369,11 +369,27 @@ pub fn parse_xmed(d: &[u8]) -> Result<StyledText, Error> {
             }
         }
     }
-    if runs.is_empty() && n > 0 {
+    if runs.is_empty() && (n > 0 || !styles.is_empty()) {
+        // An empty member keeps its style as a zero-length run: Lingo fills
+        // the text at run time and it takes this style.
+        // Regression: empty members ("GOLD", the add-on list) lost their
+        // authored font and were drawn in the default Arial 12.
+        let idx = get(4)
+            .next()
+            .and_then(|(_, _, b)| {
+                let mut p = Packer::new(b);
+                p.num();
+                p.more().then(|| p.num().max(0) as usize)
+            })
+            .unwrap_or(0);
         runs.push(Run {
             start: 0,
             end: n,
-            style: styles.first().cloned().unwrap_or_default(),
+            style: styles
+                .get(idx)
+                .or(styles.first())
+                .cloned()
+                .unwrap_or_default(),
         });
     }
 
@@ -575,6 +591,34 @@ mod tests {
         assert_eq!(
             (t.runs[0].style.font.as_str(), t.runs[0].style.size),
             ("Geneva", 14)
+        );
+    }
+
+    #[test]
+    fn empty_xmed_keeps_its_style() {
+        let mut v = vec![0i64; STYLE_LEN];
+        v[ST_POINT] = 9;
+        let mut styles = b"\x020".to_vec();
+        for x in &v {
+            styles.extend_from_slice(format!("\x02{x:X}").as_bytes());
+        }
+        styles.push(3);
+        let mut fonts = vec![0u8];
+        fonts.extend_from_slice(b"7,\x06Geneva\x00");
+        fonts.extend_from_slice(b"\x00\x31,\x00\x03");
+        let mut d = doc(None, b"");
+        sec(&mut d, 6, 1, &styles);
+        sec(&mut d, 8, 1, &fonts);
+        let t = parse_xmed(&d).unwrap();
+        assert_eq!(t.text, "");
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!(
+            (
+                t.runs[0].end,
+                t.runs[0].style.font.as_str(),
+                t.runs[0].style.size
+            ),
+            (0, "Geneva", 9)
         );
     }
 

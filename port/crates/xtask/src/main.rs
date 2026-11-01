@@ -574,7 +574,7 @@ pub fn write_png(
 
 /// Export every bitmap member of every cast as PNG (local inspection only).
 fn bitmaps_dump(discs: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    use rifx::bitmap::{bitd_for, system_win_palette, to_rgba, unpack, BitmapInfo};
+    use rifx::bitmap::{bitd_for, system_win_palette, BitmapInfo};
     let pal = system_win_palette(&std::fs::read(discs.join("cd1/Program/iLumina.exe"))?)
         .ok_or("System - Win palette not found")?;
     let mut n = 0;
@@ -592,7 +592,7 @@ fn bitmaps_dump(discs: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::
             let Some(bitd) = bitd_for(&movie, m.section) else {
                 continue;
             };
-            let rgba = to_rgba(&info, &unpack(&info, bitd?)?, Some(&pal))?;
+            let rgba = rifx::bitmap::decode(&info, bitd?, Some(&pal))?;
             if info.width == 0 || info.height == 0 {
                 continue;
             }
@@ -978,7 +978,11 @@ mod tests {
     fn outputs_go_to_the_repository_work_folder() {
         let p = work_dir("play/Home.png");
         let repo = p.parent().unwrap().parent().unwrap().parent().unwrap();
-        assert!(repo.join("AGENTS.md").exists(), "{} is not the repo", repo.display());
+        assert!(
+            repo.join("AGENTS.md").exists(),
+            "{} is not the repo",
+            repo.display()
+        );
         assert!(p.ends_with("work/play/Home.png"));
     }
 }

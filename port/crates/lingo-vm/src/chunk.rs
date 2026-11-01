@@ -84,6 +84,9 @@ pub fn count(s: &str, kind: Kind, item_delim: char) -> usize {
 
 /// Byte range of one level within `range` of `s`. Out-of-range chunks give an
 /// empty range at the end (Lingo returns "" for them).
+/// Chunk index meaning "the last one" in compiled chunk expressions.
+pub const LAST: i64 = -30000;
+
 fn narrow(
     s: &str,
     range: Range<usize>,
@@ -97,8 +100,13 @@ fn narrow(
     }
     let sub = &s[range.clone()];
     let ps = pieces(sub, kind, item_delim);
-    let last = if last == 0 { first } else { last };
     let n = ps.len() as i64;
+    // `the last char of s` compiles to the index -30000.
+    // Regression: it selected the first char (SearchAndReplace's
+    // `delete the last char of strOut` left a stray "B" on Home).
+    let resolve = |i: i64| if i == LAST { n } else { i };
+    let (first, last) = (resolve(first), resolve(last));
+    let last = if last == 0 { first } else { last };
     let (a, b) = (first.max(1), last.min(n));
     if first > n || a > b {
         return range.end..range.end;
@@ -172,6 +180,21 @@ pub fn delete(s: &str, spec: &ChunkSpec, item_delim: char) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_chunk_marker() {
+        let spec = ChunkSpec {
+            char: (LAST, 0),
+            ..Default::default()
+        };
+        assert_eq!(delete("abcB", &spec, ','), "abc");
+        assert_eq!(get("abcB", &spec, ','), "B");
+        let w = ChunkSpec {
+            word: (LAST, 0),
+            ..Default::default()
+        };
+        assert_eq!(get("ab cd", &w, ','), "cd");
+    }
 
     fn spec(f: impl FnOnce(&mut ChunkSpec)) -> ChunkSpec {
         let mut s = ChunkSpec::default();

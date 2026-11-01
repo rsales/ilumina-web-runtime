@@ -36,6 +36,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   and writes a PNG.
 
 ### Fixed
+- Port: `the last char/word/…` (index -30000) selected the first one; empty
+  text members keep their authored style; uncompressed 16/32-bit bitmaps are
+  decoded interleaved (they were read as planar).
 - Port: member numbers now start at the cast's first member (`MCsL`, read
   big-endian). Sprites on GlobalAssets were one member off, also in the M1
   renderer.

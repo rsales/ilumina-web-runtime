@@ -52,7 +52,8 @@ fn every_bitmap_decodes() {
             let bitd = bitd.unwrap();
             let px = unpack(&info, bitd)
                 .unwrap_or_else(|e| panic!("{name} #{} ({info:?}): {e}", m.number));
-            let rgba = to_rgba(&info, &px, Some(&pal))
+            let raw = bitd.len() == info.pitch * info.height;
+            let rgba = to_rgba(&info, &px, Some(&pal), !raw)
                 .unwrap_or_else(|e| panic!("{name} #{}: {e}", m.number));
             assert_eq!(rgba.len(), info.width * info.height * 4);
             *by_depth.entry(info.depth).or_insert(0) += 1;

@@ -6,7 +6,7 @@
 //! text (fonts come from the host through [`text::Fonts`]). Lingo is a later
 //! milestone; unsupported members are skipped and reported.
 
-use rifx::bitmap::{bitd_for, to_rgba, unpack, BitmapInfo, Palette};
+use rifx::bitmap::{bitd_for, BitmapInfo, Palette};
 use rifx::cast::{Member, MemberType};
 use rifx::score::{cast_libs, CastLib, Score, Sprite};
 use rifx::text::{parse_fmap, parse_stxt, parse_xmed, Align, StyledText};
@@ -182,7 +182,7 @@ impl Stage {
         let Some(bitd) = bitd_for(&movie, m.section) else {
             return Ok(None);
         };
-        let rgba = to_rgba(&info, &unpack(&info, bitd?)?, Some(&self.palette))?;
+        let rgba = rifx::bitmap::decode(&info, bitd?, Some(&self.palette))?;
         Ok(Some(Bitmap {
             width: info.width,
             height: info.height,

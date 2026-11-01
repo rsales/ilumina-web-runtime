@@ -152,9 +152,19 @@ Slices, each with its own check:
    - Fixed on the way: score `left/top` is the registration point (was
      treated as the corner); shapes store line size + 1 (the invisible
      "MouseRollBlocker" was drawn as a box).
-   - ⚠️ Still different from Wine: the scroll bar's 8-bit art (palette),
-     "Estudo Pessoal" font (XMED runs empty for that member), and Home's
-     module slideshow/rollover (needs the frame loop and the mouse).
+   - ✅ Compared with the owner's Boxedwine screenshot of the same state
+     (2026-10-31), three bugs fixed:
+     - `the last char of s` (index -30000) selected the first char: the
+       program's own `SearchAndReplace` left "BClique" in the welcome text
+       and a trailing return in the add-on list. Fixed in `chunk`; also an
+       explicit empty range (`s.char[1..0]`) is "".
+     - Empty text members lost their authored style ("GOLD" in Verdana 9
+       bold grey, the add-on list): XMED now keeps a zero-length run.
+     - Uncompressed 16/32-bit bitmaps are interleaved, not planar: the
+       scroll bar and the minimize/close icons were coloured noise.
+   - ⚠️ Still different: the welcome text wraps (font metrics; Wine has no
+     Verdana either), the `<a>` link is not underlined, scroll-bar track
+     length, and the module slideshow/rollover (frame loop + mouse).
    - The startup reads 58 disc files, 176 MB (every database opened whole,
      BLOBs included). For the browser: open Valentina BLOBs lazily.
    - Next: wire `player` into the browser page (fetch the files the run

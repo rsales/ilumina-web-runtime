@@ -564,6 +564,12 @@ fn string_chunk(vm: &Vm, s: &str, lname: &str, args: &[Value]) -> Option<Value> 
         "count" => Some(Value::Int(chunk::count(s, kind, d) as i64)),
         "getprop" | "getpropref" | "getaprop" => {
             let range = (arg(args, 2).to_int(), arg(args, 3).to_int());
+            // An explicit end before the start (`s.char[1..0]`) is empty.
+            // Regression: IMLMgr.PlusToBold takes `str.char[1..pos-1]` with
+            // pos 1; it returned char 1 ("BClique" on Home).
+            if args.len() >= 4 && range.1 < range.0 {
+                return Some(Value::str(""));
+            }
             let mut spec = ChunkSpec::default();
             match kind {
                 Kind::Char => spec.char = range,
@@ -710,6 +716,24 @@ mod tests {
         assert_eq!(
             b("offset", &[Value::str("b"), Value::str("abc")]).to_int(),
             2
+        );
+    }
+
+    #[test]
+    fn explicit_empty_char_range() {
+        let s = Value::str("abc");
+        let r = |x: i64, y: i64| {
+            b(
+                "getProp",
+                &[s.clone(), Value::sym("char"), Value::Int(x), Value::Int(y)],
+            )
+            .to_text()
+        };
+        assert_eq!(r(1, 0), "");
+        assert_eq!(r(2, 3), "bc");
+        assert_eq!(
+            b("getProp", &[s.clone(), Value::sym("char"), Value::Int(2)]).to_text(),
+            "b"
         );
     }
 
