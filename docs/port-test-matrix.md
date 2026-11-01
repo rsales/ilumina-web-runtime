@@ -241,9 +241,18 @@ Slices, each with its own check:
      (ADR 0005). The phone numbers #1/#2 come from `EncodePhoneData` over the
      registration name/e-mail, so a code issued for the same data should
      validate. ⏳ owner to confirm.
+   - Owner's browser run (2026-11-01): typing the code by hand left
+     "Continuar" disabled; the 15-day trial path and side navigation worked.
+     Fixed: the page sends text edits live (`itemChanged` after a 500 ms
+     pause, dialog redrawn), disabled items take no clicks, and the page's
+     owner now answers both activation steps too (only registration before),
+     so with the owner's code the page shows no activation dialog. A step
+     asked again (code not accepted) goes to the page. ⏳ owner to confirm.
    - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
    - ⏳ Registration and prefs are not kept between page loads (the file
-     overlay lives in memory).
+     overlay lives in memory). Next: keep the overlay the program writes in
+     browser storage, so an activated install stays activated, as on Windows.
+     The dialog itself is never skipped or removed (ADR 0005).
    - ⏳ Keyboard events from the page.
 5. ⏳ Gate: Home navigates to each module; SSIM against Wine screenshots.
 

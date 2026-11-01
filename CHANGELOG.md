@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Port page: dialog text edits reach the program while typing; the owner's
+  saved data now also answer the activation steps with their own code.
 - Experiment branch `experiment/rust-director` (ADR 0008, which supersedes 0007
   with the outcome "redirect"): Rust Director MX player, WASM first. M0 so far:
   the `rifx` crate parses all 29 movies and disassembles all Lingo bytecode,

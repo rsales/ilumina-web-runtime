@@ -62,6 +62,7 @@ impl Responder for CloseAll {
 /// dialogs ("Possuo o meu Código de Ativação", then the code field). Values
 /// come from the owner (`ILUMINA_REG_*`, `ILUMINA_ACTIVATION_CODE`), never
 /// generated; the program checks the code as it always does (ADR 0005).
+#[derive(Clone)]
 pub struct Owner {
     pub name: String,
     pub email: String,
@@ -81,12 +82,13 @@ fn shown(i: &DialogItem) -> String {
 }
 
 /// The button titled "Continuar", else the default / first push button.
-fn continue_button(items: &[DialogItem]) -> Option<usize> {
+/// The dialog's "Continuar" (or default) button; `disabled_too` also finds
+/// one the program enables only after a field is typed in.
+fn continue_button(items: &[DialogItem], disabled_too: bool) -> Option<usize> {
     let buttons = || {
-        items
-            .iter()
-            .enumerate()
-            .filter(|(_, i)| i.kind.to_ascii_lowercase().ends_with("pushbutton") && i.enabled)
+        items.iter().enumerate().filter(|(_, i)| {
+            i.kind.to_ascii_lowercase().ends_with("pushbutton") && (i.enabled || disabled_too)
+        })
     };
     buttons()
         .find(|(_, i)| i.title.eq_ignore_ascii_case("continuar"))
@@ -113,7 +115,6 @@ impl Owner {
         if self.code.is_empty() {
             return None;
         }
-        let button = continue_button(items)?;
         // "Possuo o meu Código de Ativação. Ativar agora."
         let radios: Vec<usize> = items
             .iter()
@@ -129,7 +130,7 @@ impl Owner {
                 .iter()
                 .map(|&k| DialogAction::SetValue(k + 1, if k == pick { "1" } else { "0" }.into()))
                 .collect();
-            out.push(DialogAction::Click(button));
+            out.push(DialogAction::Click(continue_button(items, false)?));
             return Some(out);
         }
         // The code field: a label asking for the activation code.
@@ -140,9 +141,12 @@ impl Owner {
             .iter()
             .position(|i| i.kind.eq_ignore_ascii_case("editText") && i.enabled);
         match (asks, field) {
+            // "Continuar" stays disabled until the code is typed: the
+            // program enables it on `itemChanged` (regression: the code step
+            // was skipped because only enabled buttons were looked for).
             (true, Some(f)) => Some(vec![
                 DialogAction::SetValue(f + 1, self.code.clone()),
-                DialogAction::Click(button),
+                DialogAction::Click(continue_button(items, true)?),
             ]),
             _ => None,
         }
@@ -161,8 +165,9 @@ impl Responder for Owner {
         // any other dialog (activation, about) is closed, like `CloseAll`.
         // Regression: the activation dialog would have got the name typed
         // into its code field.
+        // The activation takes two rounds (choose, then type the code).
         match self.answer(title, items) {
-            Some(a) if round == 0 => Some(a),
+            Some(a) if round <= 1 => Some(a),
             _ => Some(vec![DialogAction::Close]),
         }
     }
@@ -209,6 +214,9 @@ impl Owner {
 pub struct PageUser {
     pub owner: Option<Owner>,
     pub answers: std::collections::VecDeque<Vec<DialogAction>>,
+    /// The owner's last answer: the same answer asked for again means the
+    /// program did not accept it, and the page's user takes over.
+    pub last: Option<Vec<DialogAction>>,
 }
 
 impl Responder for PageUser {
@@ -218,12 +226,13 @@ impl Responder for PageUser {
         items: &[DialogItem],
         round: usize,
     ) -> Option<Vec<DialogAction>> {
-        if round == 0 {
-            if let Some(a) = self
-                .owner
-                .as_ref()
-                .and_then(|o| o.registration(title, items))
-            {
+        // The owner answers registration and (with their own code)
+        // activation, so the page never shows those dialogs. Regression: only
+        // registration was answered and the activation dialog stayed up.
+        let _ = round;
+        if let Some(a) = self.owner.as_ref().and_then(|o| o.answer(title, items)) {
+            if self.last.as_ref() != Some(&a) {
+                self.last = Some(a.clone());
                 return Some(a);
             }
         }
@@ -446,13 +455,14 @@ mod tests {
         );
         // Asked again in the same run: the answer was not accepted; close.
         assert_eq!(
-            o.dialog("Registre Sua Cópia", &items, 1).unwrap(),
+            o.dialog("Registre Sua Cópia", &items, 2).unwrap(),
             vec![DialogAction::Close]
         );
         // The page's user: registration from the owner, others from answers.
         let mut u = PageUser {
             owner: Some(o),
             answers: [vec![DialogAction::Click(6)]].into(),
+            last: None,
         };
         assert_eq!(u.dialog("Registre Sua Cópia", &items, 0).unwrap().len(), 4);
         assert_eq!(
@@ -500,12 +510,14 @@ mod tests {
                 DialogAction::Click(4),
             ]
         );
-        let entry = vec![
+        // "Continuar" is disabled until the code is typed (regression).
+        let mut entry = vec![
             it("label", "title", "Código de Ativação:"),
             it("editText", "title", ""),
             it("pushButton", "Voltar", "0"),
             it("pushButton", "Continuar", "0"),
         ];
+        entry[3].enabled = false;
         assert_eq!(
             o.answer("Ativação do iLúmina", &entry).unwrap(),
             vec![
@@ -516,9 +528,22 @@ mod tests {
         // Without a code the owner leaves activation to the page's user.
         let no_code = Owner {
             code: String::new(),
-            ..o
+            ..o.clone()
         };
         assert_eq!(no_code.answer("Ativação do iLúmina", &entry), None);
+        // The page's user never sees the two activation steps; a step asked
+        // again (code not accepted) goes to the page.
+        let mut u = PageUser {
+            owner: Some(o),
+            answers: Default::default(),
+            last: None,
+        };
+        assert_eq!(
+            u.dialog("Ativação do iLúmina", &choose, 0).unwrap().len(),
+            4
+        );
+        assert_eq!(u.dialog("Ativação do iLúmina", &entry, 1).unwrap().len(), 2);
+        assert_eq!(u.dialog("Ativação do iLúmina", &entry, 2), None);
     }
 
     #[test]

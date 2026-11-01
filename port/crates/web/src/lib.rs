@@ -258,6 +258,7 @@ impl App {
                 code: k.clone(),
             }),
             answers: self.answers.iter().cloned().collect(),
+            last: None,
         });
         let steps = player::stage::start_movie(&mut vm, &mut host);
         self.started = steps.iter().all(|(_, r)| r.is_ok());

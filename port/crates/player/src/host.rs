@@ -81,6 +81,15 @@ fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
 /// (the Xtra does that itself).
 // Regression: radio buttons got the string "1" and stayed selected
 // together, so the program's callback found the wrong choice.
+/// Whether dialog item `p` (1-based) is enabled (unset = enabled).
+fn item_enabled(items: &[Value], p: usize) -> bool {
+    let Some(it) = items.get(p.wrapping_sub(1)) else {
+        return false;
+    };
+    let e = crate::mui::prop(it, "enabled");
+    e.is_void() || e.truthy()
+}
+
 fn set_item_value(items: &[Value], p: usize, v: &str) {
     use crate::mui::{prop, set_prop};
     let Some(it) = items.get(p.wrapping_sub(1)) else {
@@ -1870,7 +1879,17 @@ impl PlayerHost {
                                 }
                                 send(self, vm, "itemChanged", p)?;
                             }
-                            DialogAction::Click(p) => send(self, vm, "itemClicked", p)?,
+                            DialogAction::Click(p) => {
+                                // A disabled item takes no clicks (the Xtra
+                                // drops them); the program enables it first.
+                                let on = self
+                                    .dialogs
+                                    .get(&id)
+                                    .is_some_and(|d| item_enabled(&d.items, p));
+                                if on {
+                                    send(self, vm, "itemClicked", p)?;
+                                }
+                            }
                             DialogAction::Close => {
                                 send(self, vm, "windowClosed", 0)?;
                                 break 'modal;
@@ -2286,6 +2305,19 @@ mod tests {
         assert!(matches!(prop(&items[1], "value"), Value::Int(1)));
         set_item_value(&items, 3, "x");
         assert_eq!(prop(&items[2], "value").to_text(), "x");
+    }
+
+    #[test]
+    fn disabled_items_take_no_clicks() {
+        use crate::mui::set_prop;
+        let items = vec![crate::mui::item_defaults(), crate::mui::item_defaults()];
+        set_prop(&items[1], "enabled", Value::Int(0));
+        // Regression: the owner's answer clicks "Continuar", which the
+        // program enables only once the code is typed; a click on a disabled
+        // button must not reach the callback.
+        assert!(item_enabled(&items, 1));
+        assert!(!item_enabled(&items, 2));
+        assert!(!item_enabled(&items, 3));
     }
 
     #[test]

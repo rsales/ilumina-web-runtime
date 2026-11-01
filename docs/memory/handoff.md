@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-10-31. Overwrite this file at the end of each session._
+_Last updated: 2026-11-01. Overwrite this file at the end of each session._
 
 ## State
 
@@ -34,6 +34,14 @@ M0 status:
   disc test pass on the Mac M4.)
 
 See `docs/port-test-matrix.md`.
+
+**Activation in the page (2026-11-01):** owner's run: trial path and side
+navigation work; typing the code left "Continuar" disabled. Fixed: live
+`itemChanged` from text fields, disabled items drop clicks, the page's owner
+answers both activation steps with their own code (no dialog shown). Owner
+to confirm in the browser. The dialog is never skipped or removed (ADR 0005);
+next, keep the program's written files in browser storage so an activated
+install stays activated across page loads.
 
 **M2 slice 4 (2026-10-31):** mouse events, `do`, real dialogs in the page
 (answers replay the session) and `go to movie` keeping globals. Component

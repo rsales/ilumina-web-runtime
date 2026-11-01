@@ -295,6 +295,18 @@ function showDialog(text) {
       el = document.createElement("input");
       el.value = unesc(value);
       fields.push({ pos, el, initial: el.value, kind: "text" });
+      // The program reacts while the user types (`itemChanged`): it enables
+      // "Continuar" once the activation code is in. Send the edit after a
+      // pause and redraw the dialog it leaves. Regression: edits only went
+      // out with a button click, so the disabled button never came on.
+      let timer = null;
+      el.oninput = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const lines = changes(fields);
+          if (lines.length) submitDialog(lines, pos);
+        }, 500);
+      };
     } else if (k === "radiobutton" || k === "checkbox") {
       el = document.createElement("label");
       const inp = document.createElement("input");
@@ -321,9 +333,17 @@ function showDialog(text) {
     body.append(el);
   });
   box.append(win);
-  const first = fields.find((f) => f.kind === "text");
-  if (first) first.el.focus();
+  const again = fields.find((f) => f.pos === refocus);
+  const first = again ?? fields.find((f) => f.kind === "text");
+  refocus = 0;
+  if (first) {
+    first.el.focus();
+    if (again) first.el.setSelectionRange(first.el.value.length, first.el.value.length);
+  }
 }
+
+/** The text field to focus again after a live edit redraws the dialog. */
+let refocus = 0;
 
 /** `set` lines for the text fields the user changed. */
 function changes(fields) {
@@ -333,8 +353,15 @@ function changes(fields) {
       : `set\t${f.pos}\t${f.el.value.replaceAll("\n", "\r")}`);
 }
 
-async function submitDialog(lines) {
-  hideDialog();
+/** Answer the dialog; `typing` = a live edit from field `typing` (the dialog
+ * stays up, read-only, until the program redraws it). */
+async function submitDialog(lines, typing = 0) {
+  if (typing) {
+    refocus = typing;
+    $("dialog").querySelectorAll("input,button").forEach((e) => (e.disabled = true));
+  } else {
+    hideDialog();
+  }
   try {
     callStr("answer", lines.join("\n"));
     const t0 = performance.now();

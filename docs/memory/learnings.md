@@ -201,3 +201,6 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
 - **`go to movie` must keep old scripts**: objects in globals were created
   by the previous movie's (shared) casts; the program keeps every movie's
   scripts and only name lookups are limited to the current movie.
+- **Mui dialogs react while typing**: the activation wizard enables
+  "Continuar" from `itemChanged`; a page that only sends edits with a click
+  never enables it. Disabled items must also drop clicks.
