@@ -294,6 +294,7 @@ Slices, each with its own check:
    - Found: `systemDate` was fixed at 2026-01-01 (nobody set the date);
      the page now passes its date and `xtask play` the system date. Test.
      The trial logic itself is not inspected or changed (ADR 0005).
+   - `the mouseUp` added (Encyclopedia). Test.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 
