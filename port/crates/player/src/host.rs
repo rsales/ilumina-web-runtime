@@ -678,7 +678,7 @@ impl PlayerHost {
             self.files.insert(id, FileIo::default());
         }
         if kind.eq_ignore_ascii_case("vcursor") {
-            self.v4md.new_cursor(id, args);
+            self.v4md.new_cursor(&self.vfs, id, args);
         }
         if kind.eq_ignore_ascii_case("mui") {
             self.dialogs.insert(id, crate::mui::Dialog::default());

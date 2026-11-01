@@ -5,6 +5,7 @@ use crate::schema::{schema, types, FieldDef, TableDef};
 use crate::{DataFile, Error};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cell {
@@ -56,20 +57,39 @@ pub type Column = std::rc::Rc<Vec<Cell>>;
 
 pub struct Database {
     pub tables: Vec<TableDef>,
-    dat: Vec<u8>,
-    blb: Option<Vec<u8>>,
+    /// Shared, not copied: the page keeps the fetched files.
+    dat: Rc<[u8]>,
+    blb: RefCell<Option<Rc<[u8]>>>,
+    /// A `.blb` exists for this database (it may not be loaded yet).
+    has_blb: bool,
     columns: RefCell<HashMap<(u32, u16), Column>>,
 }
 
 impl Database {
-    pub fn open(vdb: &[u8], dat: Vec<u8>, blb: Option<Vec<u8>>) -> Result<Self, Error> {
+    pub fn open(vdb: &[u8], dat: impl Into<Rc<[u8]>>, blb: Option<Vec<u8>>) -> Result<Self, Error> {
+        let has = blb.is_some();
+        let db = Self::open_lazy(vdb, dat, has)?;
+        *db.blb.borrow_mut() = blb.map(Rc::from);
+        Ok(db)
+    }
+
+    /// Open without the `.blb` (large; only Text fields need it). Reading a
+    /// Text column then fails with [`Error::NeedBlob`] until
+    /// [`Database::set_blob_file`] gives it.
+    pub fn open_lazy(vdb: &[u8], dat: impl Into<Rc<[u8]>>, has_blb: bool) -> Result<Self, Error> {
+        let dat = dat.into();
         DataFile::parse(&dat)?;
         Ok(Database {
             tables: schema(vdb)?,
             dat,
-            blb,
+            blb: RefCell::new(None),
+            has_blb,
             columns: RefCell::new(HashMap::new()),
         })
+    }
+
+    pub fn set_blob_file(&self, blb: Rc<[u8]>) {
+        *self.blb.borrow_mut() = Some(blb);
     }
 
     pub fn table(&self, name: &str) -> Option<&TableDef> {
@@ -126,7 +146,11 @@ impl Database {
                 }
                 types::TEXT => {
                     let ptrs = view.fixed_field(f.number)?;
-                    let store = match &self.blb {
+                    let blb = self.blb.borrow().clone();
+                    if blb.is_none() && self.has_blb {
+                        return Err(Error::NeedBlob);
+                    }
+                    let store = match &blb {
                         Some(b) => {
                             let file = DataFile::parse(b)?;
                             match file.table(t.id) {

@@ -25,7 +25,8 @@ pub const MOVIE_DIR: &str = "cd1/Program/Files";
 pub const PROJECTOR: &str = "cd1/Program/iLumina.exe";
 
 /// Verified files by disc path, shared with the player's virtual FS.
-type FileMap = Rc<RefCell<HashMap<String, Vec<u8>>>>;
+/// Shared bytes: every replay reads them without copying.
+type FileMap = Rc<RefCell<HashMap<String, Rc<[u8]>>>>;
 
 /// Player state: verified files, the loaded stage, the Lingo run (when
 /// playing) and the last frame.
@@ -69,8 +70,8 @@ struct PageDisc {
     missing: Rc<RefCell<BTreeSet<String>>>,
 }
 
-impl player::DiscFiles for PageDisc {
-    fn read(&self, rel: &str) -> Option<Vec<u8>> {
+impl PageDisc {
+    fn get(&self, rel: &str) -> Option<Rc<[u8]>> {
         let f = self.files.borrow();
         match f.get(rel) {
             Some(d) => Some(d.clone()),
@@ -79,6 +80,25 @@ impl player::DiscFiles for PageDisc {
                 None
             }
         }
+    }
+}
+
+// Files are fetched whole: the manifest hash can only check a whole file
+// (ADR 0003 gate). Replays share them instead of copying.
+// Regression: each replay copied the ~176 MB the startup reads.
+impl player::DiscFiles for PageDisc {
+    fn read(&self, rel: &str) -> Option<Vec<u8>> {
+        self.get(rel).map(|d| d.to_vec())
+    }
+    fn read_shared(&self, rel: &str) -> Option<Rc<[u8]>> {
+        self.get(rel)
+    }
+    fn size(&self, rel: &str) -> Option<usize> {
+        self.get(rel).map(|d| d.len())
+    }
+    fn read_at(&self, rel: &str, at: usize, len: usize) -> Option<Vec<u8>> {
+        self.get(rel)
+            .map(|d| player::vfs::slice(&d, at, len).to_vec())
     }
 }
 
@@ -110,7 +130,7 @@ pub enum Play {
 
 /// `Files` view of the verified files for one movie folder.
 struct Folder<'a> {
-    files: &'a HashMap<String, Vec<u8>>,
+    files: &'a HashMap<String, Rc<[u8]>>,
     dir: &'a str,
 }
 
@@ -120,7 +140,7 @@ impl Files for Folder<'_> {
         self.files
             .iter()
             .find(|(k, _)| k.to_ascii_lowercase() == want)
-            .map(|(_, v)| v.clone())
+            .map(|(_, v)| v.to_vec())
     }
 }
 
@@ -160,7 +180,7 @@ impl App {
     /// Unknown or modified files are refused.
     pub fn add_file(&mut self, rel: &str, data: Vec<u8>) -> Result<(), String> {
         discs::check_bytes(rel, &data, &self.manifest)?;
-        self.files.borrow_mut().insert(rel.to_string(), data);
+        self.files.borrow_mut().insert(rel.to_string(), data.into());
         Ok(())
     }
 
@@ -946,7 +966,7 @@ mod tests {
     #[test]
     fn folder_lookup_ignores_case() {
         let mut files = HashMap::new();
-        files.insert("cd1/Program/Files/HOCode.cxt".to_string(), vec![1]);
+        files.insert("cd1/Program/Files/HOCode.cxt".to_string(), Rc::from(vec![1u8]));
         let f = Folder {
             files: &files,
             dir: "cd1/Program/Files",

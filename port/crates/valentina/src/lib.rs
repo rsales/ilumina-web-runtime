@@ -40,6 +40,9 @@ pub enum Error {
     Eof(usize),
     BadMagic,
     Format(String),
+    /// A Text field needs the `.blb` file, which was not given yet (see
+    /// [`db::Database::open_lazy`]).
+    NeedBlob,
 }
 
 impl std::fmt::Display for Error {
@@ -48,6 +51,7 @@ impl std::fmt::Display for Error {
             Error::Eof(at) => write!(f, "unexpected end of file at {at:#x}"),
             Error::BadMagic => write!(f, "not a Valentina 1.x file"),
             Error::Format(s) => write!(f, "{s}"),
+            Error::NeedBlob => write!(f, "the .blb file is needed"),
         }
     }
 }

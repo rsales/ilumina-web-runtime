@@ -13,8 +13,9 @@ pub struct BinFile {
     path: Option<String>,
     pos: usize,
     writable: bool,
-    /// Contents, loaded on the first read.
-    data: Option<Vec<u8>>,
+    /// A window of the file read so far: (start, bytes). Only the part the
+    /// script reads is loaded (media files are large).
+    window: Option<(usize, Vec<u8>)>,
     /// Bytes written since the last flush: (start, bytes), contiguous.
     pending: Option<(usize, Vec<u8>)>,
 }
@@ -25,25 +26,35 @@ fn arg(args: &[Value], i: usize) -> Value {
 
 const OK: &str = "OK";
 
+/// Bytes read at a time.
+const WINDOW: usize = 4096;
+
 impl BinFile {
     fn flush(&mut self, vfs: &mut Vfs) {
         if let (Some(p), Some((at, bytes))) = (&self.path, self.pending.take()) {
             vfs.patch(p, at, &bytes);
-            if let Some(d) = &mut self.data {
-                if d.len() < at + bytes.len() {
-                    d.resize(at + bytes.len(), 0);
-                }
-                d[at..at + bytes.len()].copy_from_slice(&bytes);
-            }
+            self.window = None;
         }
     }
 
-    fn data(&mut self, vfs: &mut Vfs) -> &[u8] {
+    /// The byte at `pos`, read through a window of [`WINDOW`] bytes.
+    fn byte_at(&mut self, vfs: &mut Vfs, pos: usize) -> Option<u8> {
         self.flush(vfs);
-        if self.data.is_none() {
-            self.data = self.path.as_deref().and_then(|p| vfs.read(p));
+        let hit = |w: &Option<(usize, Vec<u8>)>| {
+            w.as_ref()
+                .and_then(|(at, b)| pos.checked_sub(*at).and_then(|i| b.get(i).copied()))
+        };
+        if let Some(b) = hit(&self.window) {
+            return Some(b);
         }
-        self.data.as_deref().unwrap_or(&[])
+        let path = self.path.as_deref()?;
+        self.window = Some((pos, vfs.read_at(path, pos, WINDOW)?));
+        hit(&self.window)
+    }
+
+    fn size(&mut self, vfs: &mut Vfs) -> usize {
+        self.flush(vfs);
+        self.path.as_deref().and_then(|p| vfs.size(p)).unwrap_or(0)
     }
 
     fn write(&mut self, vfs: &mut Vfs, byte: u8) {
@@ -80,7 +91,7 @@ impl BinFile {
                 *self = BinFile::default();
                 Value::str(OK)
             }
-            "getfilesize" => Value::Int(self.data(vfs).len() as i64),
+            "getfilesize" => Value::Int(self.size(vfs) as i64),
             "getfileposition" => Value::Int(self.pos as i64),
             "setfileposition" => {
                 self.pos = arg(args, 0).to_int().max(0) as usize;
@@ -88,7 +99,7 @@ impl BinFile {
             }
             "readunsignedchar" | "readchar" => {
                 let pos = self.pos;
-                let b = self.data(vfs).get(pos).copied();
+                let b = self.byte_at(vfs, pos);
                 self.pos += 1;
                 match (b, name.eq_ignore_ascii_case("readchar")) {
                     (Some(b), false) => Value::Int(b as i64),
@@ -115,8 +126,16 @@ mod tests {
 
     struct One;
     impl DiscFiles for One {
-        fn read(&self, rel: &str) -> Option<Vec<u8>> {
-            (rel == "cd1/program/files/media/x.mov").then(|| b"abcdef".to_vec())
+        fn read(&self, _: &str) -> Option<Vec<u8>> {
+            // Regression: the whole media file was read for a few bytes.
+            panic!("whole-file read")
+        }
+        fn size(&self, rel: &str) -> Option<usize> {
+            (rel == "cd1/program/files/media/x.mov").then_some(6)
+        }
+        fn read_at(&self, rel: &str, at: usize, len: usize) -> Option<Vec<u8>> {
+            (rel == "cd1/program/files/media/x.mov")
+                .then(|| crate::vfs::slice(b"abcdef", at, len).to_vec())
         }
     }
 
@@ -147,7 +166,7 @@ mod tests {
         );
         assert_eq!(call(&mut f, &mut vfs, "getFileSize", vec![]).to_int(), 6);
         assert_eq!(call(&mut f, &mut vfs, "closeFile", vec![]).to_text(), "OK");
-        assert_eq!(vfs.read(p).as_deref(), Some(&b"XYcdef"[..]));
+        assert_eq!(vfs.read_at(p, 0, 10).as_deref(), Some(&b"XYcdef"[..]));
         // Not found: an error string, not "OK".
         assert_ne!(
             call(

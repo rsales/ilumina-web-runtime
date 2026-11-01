@@ -13,10 +13,39 @@
 //! overlay that the host can persist.
 
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
 /// Reads a file of the disc set by its manifest path (`cd1/Program/…`).
 pub trait DiscFiles {
     fn read(&self, rel: &str) -> Option<Vec<u8>>;
+    /// The bytes shared, without a copy where the implementation keeps
+    /// them (the page's fetched files).
+    fn read_shared(&self, rel: &str) -> Option<Rc<[u8]>> {
+        self.read(rel).map(Rc::from)
+    }
+    fn size(&self, rel: &str) -> Option<usize> {
+        self.read_shared(rel).map(|b| b.len())
+    }
+    /// Up to `len` bytes at `at` (fewer past the end).
+    fn read_at(&self, rel: &str, at: usize, len: usize) -> Option<Vec<u8>> {
+        self.read_shared(rel).map(|b| slice(&b, at, len).to_vec())
+    }
+}
+
+/// Part of a file on disk (native disc readers).
+pub fn file_read_at(path: &std::path::Path, at: usize, len: usize) -> Option<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(at as u64)).ok()?;
+    let mut out = Vec::new();
+    f.take(len as u64).read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+/// `b[at..at + len]`, clamped to `b`.
+pub fn slice(b: &[u8], at: usize, len: usize) -> &[u8] {
+    let a = at.min(b.len());
+    &b[a..at.saturating_add(len).min(b.len())]
 }
 
 pub const APP_DIR: &str = "C:\\Program Files\\iLuminaPO\\";
@@ -108,6 +137,75 @@ impl Vfs {
             apply(&mut b, *at, bytes);
         }
         Some(b)
+    }
+
+    /// The file's bytes shared with the disc reader when nothing changed
+    /// them (no copy of large databases on every run).
+    pub fn read_shared(&self, win: &str) -> Option<Rc<[u8]>> {
+        let key = norm(win);
+        if self.overlay.contains_key(&key) || self.patches.contains_key(&key) {
+            return self.read(win).map(Rc::from);
+        }
+        if self.deleted.contains(&key) {
+            return None;
+        }
+        let rel = self.resolve(win)?;
+        let b = self.disc.read_shared(&rel)?;
+        self.reads.borrow_mut().insert(rel, b.len());
+        Some(b)
+    }
+
+    pub fn size(&self, win: &str) -> Option<usize> {
+        let key = norm(win);
+        if let Some((_, b)) = self.overlay.get(&key) {
+            return Some(b.len());
+        }
+        if self.deleted.contains(&key) {
+            return None;
+        }
+        let rel = self.resolve(win)?;
+        let n = self.disc.size(&rel)?;
+        // Patches may write past the end.
+        let end = self
+            .patches
+            .get(&key)
+            .into_iter()
+            .flatten()
+            .map(|(at, b)| at + b.len())
+            .max()
+            .unwrap_or(0);
+        Some(n.max(end))
+    }
+
+    /// Up to `len` bytes at `at`, with the program's patches applied; reads
+    /// only that part of a disc file.
+    pub fn read_at(&self, win: &str, at: usize, len: usize) -> Option<Vec<u8>> {
+        let key = norm(win);
+        if let Some((_, b)) = self.overlay.get(&key) {
+            return Some(slice(b, at, len).to_vec());
+        }
+        if self.deleted.contains(&key) {
+            return None;
+        }
+        let rel = self.resolve(win)?;
+        let size = self.size(win)?;
+        let mut out = self.disc.read_at(&rel, at, len)?;
+        let want = at.min(size).abs_diff(at.saturating_add(len).min(size));
+        out.resize(want, 0);
+        {
+            let mut reads = self.reads.borrow_mut();
+            let r = reads.entry(rel).or_insert(0);
+            *r = (*r).max(at.saturating_add(out.len()).min(size));
+        }
+        for (p_at, bytes) in self.patches.get(&key).into_iter().flatten() {
+            for (i, &byte) in bytes.iter().enumerate() {
+                let pos = p_at + i;
+                if pos >= at && pos < at + out.len() {
+                    out[pos - at] = byte;
+                }
+            }
+        }
+        Some(out)
     }
 
     /// Overwrite `bytes` at `at` in an existing file without copying it into
@@ -378,6 +476,26 @@ mod tests {
         assert_eq!(v.patched().count(), 0);
         assert!(v.patch(p, 0, b"N"));
         assert_eq!(v.read(p).as_deref(), Some(&b"New"[..]));
+    }
+
+    #[test]
+    fn ranges_and_sizes_without_reading_whole_files() {
+        // Regression: BinaryIO and the databases read whole disc files
+        // (about 176 MB per run, copied again on every replay).
+        let mut v = vfs();
+        let p = "C:\\Program Files\\iLuminaPO\\Files\\Media\\Photos\\a.jpg";
+        assert_eq!(v.size(p), Some(3));
+        assert_eq!(v.read_at(p, 1, 5).as_deref(), Some(&b"pg"[..]));
+        assert!(v.patch(p, 1, b"P"));
+        assert!(v.patch(p, 4, b"!"));
+        assert_eq!(v.size(p), Some(5));
+        assert_eq!(v.read_at(p, 0, 9).as_deref(), Some(&b"jPg\0!"[..]));
+        assert_eq!(v.read_at(p, 2, 2).as_deref(), Some(&b"g\0"[..]));
+        // Patched files are copied; untouched ones are shared.
+        assert_eq!(v.read_shared(p).as_deref(), Some(&b"jPg\0!"[..]));
+        let home = "C:\\Program Files\\iLuminaPO\\Files\\Home.dxr";
+        assert_eq!(v.read_shared(home).as_deref(), Some(&b"dxr"[..]));
+        assert_eq!(v.read_at("C:\\nope", 0, 1), None);
     }
 
     #[test]

@@ -712,6 +712,14 @@ impl player::DiscFiles for DiscDir {
     fn read(&self, rel: &str) -> Option<Vec<u8>> {
         std::fs::read(self.0.join(rel)).ok()
     }
+    fn size(&self, rel: &str) -> Option<usize> {
+        std::fs::metadata(self.0.join(rel))
+            .ok()
+            .map(|m| m.len() as usize)
+    }
+    fn read_at(&self, rel: &str, at: usize, len: usize) -> Option<Vec<u8>> {
+        player::vfs::file_read_at(&self.0.join(rel), at, len)
+    }
 }
 
 /// Run a movie's startup with the original Lingo and render the stage as

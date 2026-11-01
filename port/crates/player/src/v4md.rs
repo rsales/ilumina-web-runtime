@@ -21,6 +21,8 @@ pub struct Cursor {
 #[derive(Default)]
 pub struct V4md {
     dbs: HashMap<i64, Database>,
+    /// Each database's `.blb`, read on the first query that needs it.
+    blb_paths: HashMap<i64, String>,
     cursors: HashMap<i64, Cursor>,
     pub last_error: (i64, String),
     /// Write statements the program sent (not applied yet).
@@ -59,15 +61,26 @@ impl V4md {
     }
 
     /// `new(xtra("VCursor"), dbRef, sql, …)`: run the query now.
-    pub fn new_cursor(&mut self, id: i64, args: &[Value]) {
+    pub fn new_cursor(&mut self, vfs: &Vfs, id: i64, args: &[Value]) {
         let db_id = match arg(args, 0) {
             Value::Host(lingo_vm::HostRef::Object { id, .. }) => id,
             _ => -1,
         };
         let sql = arg(args, 1).to_text();
         self.last_error = (0, String::new());
-        let rs = match self.dbs.get(&db_id) {
-            Some(db) => match valentina::sql::query(db, &sql) {
+        let mut result = self
+            .dbs
+            .get(&db_id)
+            .map(|db| valentina::sql::query(db, &sql));
+        // A Text field: read the .blb now and run the query again.
+        if let (Some(Err(valentina::Error::NeedBlob)), Some(db)) = (&result, self.dbs.get(&db_id)) {
+            if let Some(b) = self.blb_paths.get(&db_id).and_then(|p| vfs.read_shared(p)) {
+                db.set_blob_file(b);
+                result = Some(valentina::sql::query(db, &sql));
+            }
+        }
+        let rs = match result {
+            Some(r) => match r {
                 Ok(rs) => rs,
                 Err(e) => {
                     self.fail(e.to_string());
@@ -112,23 +125,29 @@ impl V4md {
                 let find = |exts: &[&str]| {
                     exts.iter()
                         .map(|e| format!("{stem}{e}"))
-                        .find_map(|p| vfs.read(&p))
+                        .find(|p| vfs.exists(p))
                 };
-                match (vfs.read(&path), find(&[".dat", ".DAT"])) {
-                    (Some(vdb), Some(dat)) => {
-                        match Database::open(&vdb, dat, find(&[".blb", ".BLB"])) {
-                            Ok(db) => {
-                                self.dbs.insert(id, db);
+                let dat = find(&[".dat", ".DAT"]).and_then(|p| vfs.read_shared(&p));
+                // Regression: every run read all .blb files (~110 MB) at
+                // open; now only when a query reads a Text field.
+                let blb = find(&[".blb", ".BLB"]);
+                match (vfs.read(&path), dat) {
+                    (Some(vdb), Some(dat)) => match Database::open_lazy(&vdb, dat, blb.is_some()) {
+                        Ok(db) => {
+                            self.dbs.insert(id, db);
+                            if let Some(b) = blb {
+                                self.blb_paths.insert(id, b);
                             }
-                            Err(e) => self.fail(format!("{path}: {e}")),
                         }
-                    }
+                        Err(e) => self.fail(format!("{path}: {e}")),
+                    },
                     _ => self.fail(format!("{path}: database files not found")),
                 }
                 Value::Int(0)
             }
             "closedatabase" => {
                 self.dbs.remove(&id);
+                self.blb_paths.remove(&id);
                 Value::Int(0)
             }
             "getref" => me.clone(),

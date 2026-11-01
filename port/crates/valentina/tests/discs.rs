@@ -232,4 +232,30 @@ fn every_column_of_every_database_reads() {
     assert!(!rs.rows.is_empty());
     let rs = valentina::sql::query(&db, "select count(*) from StringTable").unwrap();
     eprintln!("Addons query ok; StringTable rows: {:?}", rs.rows[0][0]);
+
+    // Opened without the .blb (regression: every run read all .blb files,
+    // ~110 MB): Text columns ask for it, other columns work without it.
+    let lazy = valentina::db::Database::open_lazy(
+        &vdb,
+        std::fs::read(dir.join("AppTables.dat")).unwrap(),
+        true,
+    )
+    .unwrap();
+    let mut asked = false;
+    for t in &lazy.tables {
+        for f in &t.fields {
+            match lazy.column(t, f) {
+                Err(valentina::Error::NeedBlob) => asked = true,
+                Err(e) => panic!("{}.{}: {e}", t.name, f.name),
+                Ok(_) => {}
+            }
+        }
+    }
+    assert!(asked, "AppTables has Text fields");
+    lazy.set_blob_file(std::fs::read(dir.join("AppTables.blb")).unwrap().into());
+    for t in &lazy.tables {
+        for f in &t.fields {
+            lazy.column(t, f).unwrap();
+        }
+    }
 }
