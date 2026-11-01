@@ -239,11 +239,19 @@ pub fn script(movie: &Movie, section: i32, index: u32) -> Result<Script, Error> 
 /// the projector does it for literals).
 // Regression: "Ativação do iLúmina" came out as "Ativa\u{8d}\u{8b}o do iL\u{9c}mina".
 pub fn script_string(b: &[u8]) -> String {
-    let mac = b.iter().any(|&c| (0x80..0xa0).contains(&c)) && !b.iter().any(|&c| c >= 0xc0);
-    if mac {
-        crate::text::mac_roman(b)
+    if b.iter().all(|&c| c < 0x80) {
+        return crate::text::cp1252(b);
+    }
+    // Pick the decoding that yields more Portuguese letters.
+    // Regression: "ATIVA\x82\xccO" (Mac: "ATIVAÇÃO") has a byte ≥ 0xC0 and
+    // was read as Windows-1252 ("ATIVA‚ÌO").
+    const PT: &str = "áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ";
+    let score = |t: &str| t.chars().filter(|c| PT.contains(*c)).count();
+    let (mac, win) = (crate::text::mac_roman(b), crate::text::cp1252(b));
+    if score(&mac) > score(&win) {
+        mac
     } else {
-        crate::text::cp1252(b)
+        win
     }
 }
 
@@ -262,5 +270,10 @@ mod script_string_tests {
             "Registre Sua Cópia"
         );
         assert_eq!(script_string(b"plain"), "plain");
+        assert_eq!(script_string(b"ATIVA\x82\xccO"), "ATIVAÇÃO");
+        assert_eq!(
+            script_string(b"DIGITE O SEU C\xeeDIGO"),
+            "DIGITE O SEU CÓDIGO"
+        );
     }
 }

@@ -78,6 +78,7 @@ fn owner() -> Option<player::mui::Owner> {
         name: get("ILUMINA_REG_NAME")?,
         email: get("ILUMINA_REG_EMAIL")?,
         cep: get("ILUMINA_REG_CEP").unwrap_or_default(),
+        code: get("ILUMINA_ACTIVATION_CODE").unwrap_or_default(),
     })
 }
 
@@ -89,10 +90,15 @@ fn home_movie_events_inner() {
     let mut secrets: Vec<String> = Vec::new();
     let with_owner = match owner() {
         Some(o) => {
-            secrets = [o.name.clone(), o.email.clone(), o.cep.clone()]
-                .into_iter()
-                .filter(|v| !v.is_empty())
-                .collect();
+            secrets = [
+                o.name.clone(),
+                o.email.clone(),
+                o.cep.clone(),
+                o.code.clone(),
+            ]
+            .into_iter()
+            .filter(|v| !v.is_empty())
+            .collect();
             host.responder = Box::new(o);
             true
         }

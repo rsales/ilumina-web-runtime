@@ -39,6 +39,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   15 fps. Lingo string literals in Mac Roman are decoded as such.
   Mouse events (rollover, clicks), `do`, `go to movie` keeping globals, and
   the program's dialogs drawn in the page (answers replay the session).
+  The owner's own activation code (`.env` / page form) is typed into the
+  activation dialogs; the program checks it.
 
 ### Fixed
 - Port: `the last char/word/…` (index -30000) selected the first one; empty

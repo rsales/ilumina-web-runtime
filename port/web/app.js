@@ -169,14 +169,15 @@ function loadOwner() {
   // owner asks to remember); never sent anywhere.
   const raw = sessionStorage.getItem(OWNER_KEY) ?? localStorage.getItem(OWNER_KEY);
   if (!raw) return;
-  const [n, e, c] = raw.split("\n");
+  const [n, e, c, k] = raw.split("\n");
   $("regName").value = n ?? "";
   $("regEmail").value = e ?? "";
   $("regCep").value = c ?? "";
+  $("regCode").value = k ?? "";
 }
 
 function applyOwner() {
-  const v = [$("regName").value, $("regEmail").value, $("regCep").value].join("\n");
+  const v = [$("regName").value, $("regEmail").value, $("regCep").value, $("regCode").value].join("\n");
   callStr("set_owner", v);
   sessionStorage.setItem(OWNER_KEY, v);
   if ($("regRemember").checked) localStorage.setItem(OWNER_KEY, v);
@@ -287,8 +288,9 @@ function showDialog(text) {
     const k = kind.toLowerCase();
     let el = null;
     if (k === "label") {
+      // Mui labels show their value (the title stays the default "title").
       el = document.createElement("div");
-      el.textContent = unesc(label);
+      el.textContent = unesc(value);
     } else if (k === "edittext" || k === "editTextLarge".toLowerCase()) {
       el = document.createElement("input");
       el.value = unesc(value);
@@ -299,7 +301,8 @@ function showDialog(text) {
       inp.type = k === "radiobutton" ? "radio" : "checkbox";
       inp.name = "g";
       inp.checked = value === "1" || value === "true";
-      inp.onclick = () => submitDialog(changes(fields).concat([`click\t${pos}`]));
+      // Choosing an option only changes it; buttons send the choices.
+      fields.push({ pos, el: inp, initial: inp.checked, kind: "toggle" });
       el.append(inp, " ", unesc(label));
     } else if (k.endsWith("pushbutton")) {
       el = document.createElement("button");
@@ -318,14 +321,16 @@ function showDialog(text) {
     body.append(el);
   });
   box.append(win);
-  const first = fields[0];
+  const first = fields.find((f) => f.kind === "text");
   if (first) first.el.focus();
 }
 
 /** `set` lines for the text fields the user changed. */
 function changes(fields) {
-  return fields.filter((f) => f.el.value !== f.initial)
-    .map((f) => `set\t${f.pos}\t${f.el.value.replaceAll("\n", "\r")}`);
+  return fields.filter((f) => (f.kind === "toggle" ? f.el.checked : f.el.value) !== f.initial)
+    .map((f) => f.kind === "toggle"
+      ? `set\t${f.pos}\t${f.el.checked ? 1 : 0}`
+      : `set\t${f.pos}\t${f.el.value.replaceAll("\n", "\r")}`);
 }
 
 async function submitDialog(lines) {
@@ -354,7 +359,11 @@ function stopPlayback() {
 
 /** React to a step/mouse result code; false = playback must stop. */
 async function handle(rc) {
-  if (rc === -1) throw new Error(result());
+  if (rc === -1) {
+    const msg = result();
+    if (msg === "the program quit") throw new Error("o programa foi encerrado (quit)");
+    throw new Error(msg);
+  }
   if (rc === 1) {
     // Files not fetched yet: fetch them and replay the session.
     await addFiles(result().split("\n"), "arquivos que o Lingo leu");

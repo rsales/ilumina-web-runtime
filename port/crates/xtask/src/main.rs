@@ -737,8 +737,14 @@ fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error:
     let mut secrets = Vec::new();
     if let (Some(name), Some(email)) = (get("ILUMINA_REG_NAME"), get("ILUMINA_REG_EMAIL")) {
         let cep = get("ILUMINA_REG_CEP").unwrap_or_default();
-        secrets = vec![name.clone(), email.clone(), cep.clone()];
-        host.responder = Box::new(player::mui::Owner { name, email, cep });
+        let code = get("ILUMINA_ACTIVATION_CODE").unwrap_or_default();
+        secrets = vec![name.clone(), email.clone(), cep.clone(), code.clone()];
+        host.responder = Box::new(player::mui::Owner {
+            name,
+            email,
+            cep,
+            code,
+        });
     }
     let mask = |t: &str| {
         let mut t = t.to_string();

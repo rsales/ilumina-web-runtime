@@ -56,14 +56,43 @@ impl Responder for CloseAll {
     }
 }
 
-/// The owner typing their own registration data, like `auto-activate.sh`
-/// on Wine: first text field = name, second = e-mail, last = CEP; then the
-/// first push button. Values come from the owner (`ILUMINA_REG_*`), never
-/// generated.
+/// The owner typing their own data, like `auto-activate.sh` on Wine:
+/// registration (first text field = name, second = e-mail, last = CEP, then
+/// the first push button) and, with an activation code, the activation
+/// dialogs ("Possuo o meu Código de Ativação", then the code field). Values
+/// come from the owner (`ILUMINA_REG_*`, `ILUMINA_ACTIVATION_CODE`), never
+/// generated; the program checks the code as it always does (ADR 0005).
 pub struct Owner {
     pub name: String,
     pub email: String,
     pub cep: String,
+    /// The owner's own activation code (empty = they activate by hand).
+    pub code: String,
+}
+
+/// Lower-case text of an item as shown (labels show their value).
+fn shown(i: &DialogItem) -> String {
+    let t = if i.kind.eq_ignore_ascii_case("label") {
+        &i.value
+    } else {
+        &i.title
+    };
+    t.to_lowercase()
+}
+
+/// The button titled "Continuar", else the default / first push button.
+fn continue_button(items: &[DialogItem]) -> Option<usize> {
+    let buttons = || {
+        items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.kind.to_ascii_lowercase().ends_with("pushbutton") && i.enabled)
+    };
+    buttons()
+        .find(|(_, i)| i.title.eq_ignore_ascii_case("continuar"))
+        .or_else(|| buttons().find(|(_, i)| i.kind.eq_ignore_ascii_case("defaultPushButton")))
+        .or_else(|| buttons().next())
+        .map(|(k, _)| k + 1)
 }
 
 impl Owner {
@@ -73,6 +102,50 @@ impl Owner {
             return None;
         }
         Some(self.fill(items))
+    }
+
+    /// The owner's answer to a dialog they recognise: registration, or (with
+    /// a code) choosing "I have my activation code" and typing it.
+    pub fn answer(&self, title: &str, items: &[DialogItem]) -> Option<Vec<DialogAction>> {
+        if let Some(a) = self.registration(title, items) {
+            return Some(a);
+        }
+        if self.code.is_empty() {
+            return None;
+        }
+        let button = continue_button(items)?;
+        // "Possuo o meu Código de Ativação. Ativar agora."
+        let radios: Vec<usize> = items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.kind.eq_ignore_ascii_case("radioButton"))
+            .map(|(k, _)| k)
+            .collect();
+        if let Some(&pick) = radios.iter().find(|&&k| {
+            let t = shown(&items[k]);
+            t.contains("digo de ativa") && t.contains("ativar agora")
+        }) {
+            let mut out: Vec<DialogAction> = radios
+                .iter()
+                .map(|&k| DialogAction::SetValue(k + 1, if k == pick { "1" } else { "0" }.into()))
+                .collect();
+            out.push(DialogAction::Click(button));
+            return Some(out);
+        }
+        // The code field: a label asking for the activation code.
+        let asks = items
+            .iter()
+            .any(|i| i.kind.eq_ignore_ascii_case("label") && shown(i).contains("digo de ativa"));
+        let field = items
+            .iter()
+            .position(|i| i.kind.eq_ignore_ascii_case("editText") && i.enabled);
+        match (asks, field) {
+            (true, Some(f)) => Some(vec![
+                DialogAction::SetValue(f + 1, self.code.clone()),
+                DialogAction::Click(button),
+            ]),
+            _ => None,
+        }
     }
 }
 
@@ -88,7 +161,7 @@ impl Responder for Owner {
         // any other dialog (activation, about) is closed, like `CloseAll`.
         // Regression: the activation dialog would have got the name typed
         // into its code field.
-        match self.registration(title, items) {
+        match self.answer(title, items) {
             Some(a) if round == 0 => Some(a),
             _ => Some(vec![DialogAction::Close]),
         }
@@ -352,6 +425,7 @@ mod tests {
             name: "N".into(),
             email: "E".into(),
             cep: "C".into(),
+            code: String::new(),
         };
         assert_eq!(
             o.dialog("Registre Sua Cópia", &items, 0).unwrap(),
@@ -386,6 +460,65 @@ mod tests {
             Some(vec![DialogAction::Click(6)])
         );
         assert_eq!(u.dialog("Ativação", &items, 1), None);
+    }
+
+    #[test]
+    fn owner_activates_with_their_own_code() {
+        let it = |kind: &str, title: &str, value: &str| DialogItem {
+            kind: kind.into(),
+            title: title.into(),
+            value: value.into(),
+            enabled: true,
+            rect: (0, 0, 0, 0),
+        };
+        let o = Owner {
+            name: "N".into(),
+            email: "E".into(),
+            cep: "C".into(),
+            code: "CODE".into(),
+        };
+        let choose = vec![
+            it(
+                "radioButton",
+                "Possuo o Número de Série mas não o de Ativação.",
+                "1",
+            ),
+            it(
+                "radioButton",
+                "Possuo o meu Código de Ativação. Ativar agora.",
+                "0",
+            ),
+            it("radioButton", "Não quero ativar agora.", "0"),
+            it("pushButton", "Continuar", "0"),
+        ];
+        assert_eq!(
+            o.answer("Ativação do iLúmina", &choose).unwrap(),
+            vec![
+                DialogAction::SetValue(1, "0".into()),
+                DialogAction::SetValue(2, "1".into()),
+                DialogAction::SetValue(3, "0".into()),
+                DialogAction::Click(4),
+            ]
+        );
+        let entry = vec![
+            it("label", "title", "Código de Ativação:"),
+            it("editText", "title", ""),
+            it("pushButton", "Voltar", "0"),
+            it("pushButton", "Continuar", "0"),
+        ];
+        assert_eq!(
+            o.answer("Ativação do iLúmina", &entry).unwrap(),
+            vec![
+                DialogAction::SetValue(2, "CODE".into()),
+                DialogAction::Click(4)
+            ]
+        );
+        // Without a code the owner leaves activation to the page's user.
+        let no_code = Owner {
+            code: String::new(),
+            ..o
+        };
+        assert_eq!(no_code.answer("Ativação do iLúmina", &entry), None);
     }
 
     #[test]

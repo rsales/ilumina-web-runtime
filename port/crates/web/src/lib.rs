@@ -39,7 +39,7 @@ pub struct App {
     missing: Rc<RefCell<BTreeSet<String>>>,
     /// The owner's registration data, typed into the page (never generated,
     /// ADR 0005): name, e-mail, CEP.
-    owner: Option<(String, String, String)>,
+    owner: Option<(String, String, String, String)>,
     /// The session's events since the startup, so a re-run (after
     /// fetching files or answering a dialog) replays the same session.
     log: Vec<Ev>,
@@ -213,9 +213,15 @@ impl App {
     }
 
     /// Set (or clear, with empty values) the owner's registration data.
-    pub fn set_owner(&mut self, name: &str, email: &str, cep: &str) {
-        self.owner = (!name.is_empty() && !email.is_empty())
-            .then(|| (name.to_string(), email.to_string(), cep.to_string()));
+    pub fn set_owner(&mut self, name: &str, email: &str, cep: &str, code: &str) {
+        self.owner = (!name.is_empty() && !email.is_empty()).then(|| {
+            (
+                name.to_string(),
+                email.to_string(),
+                cep.to_string(),
+                code.to_string(),
+            )
+        });
     }
 
     /// Run `movie`'s startup with its original Lingo, from the start, then
@@ -245,10 +251,11 @@ impl App {
         let (mut vm, mut host) = player::load_movie(vfs, name, &casts)?;
         host.fonts = Box::new(PageFonts::default());
         host.responder = Box::new(player::mui::PageUser {
-            owner: self.owner.as_ref().map(|(n, e, c)| player::mui::Owner {
+            owner: self.owner.as_ref().map(|(n, e, c, k)| player::mui::Owner {
                 name: n.clone(),
                 email: e.clone(),
                 cep: c.clone(),
+                code: k.clone(),
             }),
             answers: self.answers.iter().cloned().collect(),
         });
@@ -304,8 +311,8 @@ impl App {
 
     fn masked(&self, text: &str) -> String {
         let mut m = text.to_string();
-        if let Some((n, e, c)) = &self.owner {
-            for s in [n, e, c].into_iter().filter(|s| !s.is_empty()) {
+        if let Some((n, e, c, k)) = &self.owner {
+            for s in [n, e, c, k].into_iter().filter(|s| !s.is_empty()) {
                 m = m.replace(s.as_str(), "<owner>");
             }
         }
@@ -763,7 +770,8 @@ pub extern "C" fn render(frame: u32) -> i32 {
     })
 }
 
-/// Set the owner's registration data: "name\ne-mail\nCEP" (empty clears).
+/// Set the owner's data: "name\ne-mail\nCEP\nactivation code" (empty
+/// clears).
 ///
 /// # Safety
 /// `ptr`/`len` must be valid UTF-8 in linear memory.
@@ -776,7 +784,11 @@ pub unsafe extern "C" fn set_owner(ptr: *const u8, len: usize) -> i32 {
         it.next().unwrap_or(""),
         it.next().unwrap_or(""),
     );
-    APP.with(|a| a.borrow_mut().set_owner(n.trim(), e.trim(), c.trim()));
+    let k = it.next().unwrap_or("");
+    APP.with(|a| {
+        a.borrow_mut()
+            .set_owner(n.trim(), e.trim(), c.trim(), k.trim())
+    });
     0
 }
 
@@ -1080,10 +1092,17 @@ mod tests {
         let js = include_str!("../../../web/app.js");
         let run = &js[js.find("async function runPlay").unwrap()..];
         let run = &run[..run.find("\n}\n").unwrap()];
-        let read = run.find("const text = result();").expect("result read in runPlay");
-        let sync = run.find("await syncMovie();").expect("syncMovie in runPlay");
+        let read = run
+            .find("const text = result();")
+            .expect("result read in runPlay");
+        let sync = run
+            .find("await syncMovie();")
+            .expect("syncMovie in runPlay");
         assert!(read < sync);
-        assert!(!run[sync..].contains("result()"), "result() used after syncMovie");
+        assert!(
+            !run[sync..].contains("result()"),
+            "result() used after syncMovie"
+        );
     }
 
     /// End to end over the real discs: the same calls the page makes.

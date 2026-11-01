@@ -33,6 +33,9 @@ pub struct MemberInfo {
     pub style: Vec<(String, Value)>,
 }
 
+/// The error a run ends with when the program calls `quit` or `halt`.
+pub const QUIT: &str = "the program quit";
+
 /// A bitmap's registration point as drawn: scaled with a stretched sprite
 /// (as the compositor draws it). `b` = (width, height, regX, regY, depth).
 // Regression: setting a stretched sprite's rect placed it with the
@@ -71,6 +74,36 @@ fn underline(runs: &mut Vec<rifx::text::Run>, a: usize, b: usize) {
         }
     }
     *runs = out;
+}
+
+/// The user changed item `p` (1-based) of a Mui dialog. Check boxes and
+/// radio buttons hold 1/0, and a selected radio button clears the others
+/// (the Xtra does that itself).
+// Regression: radio buttons got the string "1" and stayed selected
+// together, so the program's callback found the wrong choice.
+fn set_item_value(items: &[Value], p: usize, v: &str) {
+    use crate::mui::{prop, set_prop};
+    let Some(it) = items.get(p.wrapping_sub(1)) else {
+        return;
+    };
+    let kind = prop(it, "type").to_text().to_ascii_lowercase();
+    if kind != "radiobutton" && kind != "checkbox" {
+        set_prop(it, "value", Value::Str(v.to_string()));
+        return;
+    }
+    let on = v == "1" || v.eq_ignore_ascii_case("true");
+    if kind == "radiobutton" && on {
+        for (k, other) in items.iter().enumerate() {
+            if k + 1 != p
+                && prop(other, "type")
+                    .to_text()
+                    .eq_ignore_ascii_case("radioButton")
+            {
+                set_prop(other, "value", Value::Int(0));
+            }
+        }
+    }
+    set_prop(it, "value", Value::Int(on as i64));
 }
 
 /// A property of the first behavior instance that declares it.
@@ -1073,6 +1106,9 @@ impl lingo_vm::Host for PlayerHost {
                 self.settings.insert("cursor".into(), a0.clone());
                 Value::Void
             }
+            // quit / halt: the projector ends. The run stops here; the page
+            // says the program closed.
+            "quit" | "halt" => return Err(QUIT.to_string()),
             "updatestage" => {
                 self.stage_updates += 1;
                 Value::Void
@@ -1711,7 +1747,7 @@ impl PlayerHost {
         name: &str,
         args: &[Value],
     ) -> HostResult<Option<Value>> {
-        use crate::mui::{copy, item_defaults, prop, set_prop, window_defaults, DialogAction};
+        use crate::mui::{copy, item_defaults, prop, window_defaults, DialogAction};
         let a0 = arg(args, 0);
         Ok(Some(match name.to_ascii_lowercase().as_str() {
             "getwindowproplist" => window_defaults(),
@@ -1829,12 +1865,8 @@ impl PlayerHost {
                         }
                         match a {
                             DialogAction::SetValue(p, v) => {
-                                if let Some(it) = self
-                                    .dialogs
-                                    .get(&id)
-                                    .and_then(|d| d.items.get(p.wrapping_sub(1)))
-                                {
-                                    set_prop(it, "value", Value::Str(v));
+                                if let Some(d) = self.dialogs.get(&id) {
+                                    set_item_value(&d.items, p, &v);
                                 }
                                 send(self, vm, "itemChanged", p)?;
                             }
@@ -2237,5 +2269,30 @@ mod tests {
         }
         d.extend(e0);
         d
+    }
+
+    #[test]
+    fn radio_buttons_are_exclusive_ints() {
+        use crate::mui::{prop, set_prop};
+        let item = |kind: &str| {
+            let i = crate::mui::item_defaults();
+            set_prop(&i, "type", Value::sym(kind));
+            i
+        };
+        let items = vec![item("radioButton"), item("radioButton"), item("editText")];
+        set_item_value(&items, 1, "1");
+        set_item_value(&items, 2, "1");
+        assert_eq!(prop(&items[0], "value").to_int(), 0);
+        assert!(matches!(prop(&items[1], "value"), Value::Int(1)));
+        set_item_value(&items, 3, "x");
+        assert_eq!(prop(&items[2], "value").to_text(), "x");
+    }
+
+    #[test]
+    fn quit_ends_the_run() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        // Regression: the activation wizard calls `quit`; it was not implemented.
+        assert_eq!(host.call(&mut vm, "quit", &[]).unwrap_err(), QUIT);
     }
 }

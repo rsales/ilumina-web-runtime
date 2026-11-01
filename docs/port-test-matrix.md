@@ -230,6 +230,17 @@ Slices, each with its own check:
    - Page: mouse events on the canvas, Mui dialogs drawn over the stage,
      movie changes followed (the selector updates). Session log (frames,
      mouse, movies) replayed after fetching files or answering.
+   - Owner's browser run (2026-10-31): the activation dialog appeared as a
+     page dialog. Fixed after it: Mui labels show their value; radio buttons
+     hold 1/0 and are exclusive; choosing a radio no longer submits; `quit`
+     ends the run with a message; Mac Roman literals with uppercase accents
+     ("ATIVAÇÃO", "CÓDIGO") decode by letter score.
+   - The owner's activation code (`ILUMINA_ACTIVATION_CODE`, or the page's
+     form) is typed like `auto-activate.sh` does: choose "Possuo o meu Código
+     de Ativação", then the code field. The program checks it as always
+     (ADR 0005). The phone numbers #1/#2 come from `EncodePhoneData` over the
+     registration name/e-mail, so a code issued for the same data should
+     validate. ⏳ owner to confirm.
    - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
    - ⏳ Registration and prefs are not kept between page loads (the file
      overlay lives in memory).
