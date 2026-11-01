@@ -247,7 +247,10 @@ Slices, each with its own check:
      pause, dialog redrawn), disabled items take no clicks, and the page's
      owner now answers both activation steps too (only registration before),
      so with the owner's code the page shows no activation dialog. A step
-     asked again (code not accepted) goes to the page. ⏳ owner to confirm.
+     asked again (code not accepted) goes to the page. ✅ owner's browser
+     run (2026-11-01, a4fb143): no activation dialog with the owner's code;
+     Home rollovers (Multimídia, Viagem no Tempo) work. Seen in the status
+     line: `not implemented: handler #puppetSound` (sound is next).
    - ⏳ Hit testing by rectangle (Director uses the mask for matte ink).
    - ⏳ Registration and prefs are not kept between page loads (the file
      overlay lives in memory). Next: keep the overlay the program writes in

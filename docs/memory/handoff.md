@@ -39,7 +39,7 @@ See `docs/port-test-matrix.md`.
 navigation work; typing the code left "Continuar" disabled. Fixed: live
 `itemChanged` from text fields, disabled items drop clicks, the page's owner
 answers both activation steps with their own code (no dialog shown). Owner
-to confirm in the browser. The dialog is never skipped or removed (ADR 0005);
+confirmed in the browser (no dialog; rollovers OK). Next: `puppetSound`. The dialog is never skipped or removed (ADR 0005);
 next, keep the program's written files in browser storage so an activated
 install stays activated across page loads.
 
