@@ -577,6 +577,9 @@ async function main() {
   $("stage").addEventListener("mouseup", (e) => queueMouse(2, e));
   loadOwner();
   loadState();
+  // The program dates its files (prefs, trial) with systemDate: the real day.
+  const today = new Date();
+  wasm.set_today(today.getFullYear(), today.getMonth() + 1, today.getDate());
   $("regForm").onsubmit = (ev) => {
     ev.preventDefault();
     applyOwner();

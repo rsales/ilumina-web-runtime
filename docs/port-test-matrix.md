@@ -285,8 +285,17 @@ Slices, each with its own check:
    `#paragraph` chunks, `member.member`, `scrollTop`, `useHypertextStyles`,
    `puppetSound` (remembered, silent until M4), timeouts, and the TreeView
    Xtra model (`*XTV`: nodes, names, icons, fonts, user data; ⏳ drawing
-   and its mouse callbacks, M3). ⏳ Browser check by the owner; SSIM
-   against Wine screenshots.
+   and its mouse callbacks, M3). ⏳ SSIM against Wine screenshots.
+   - Owner's browser run (2026-11-01, 281eb9e): Encyclopedia, Multimídia,
+     Viagem no Tempo and Extras open and draw. ❌ The activation dialog came
+     back saying 0 days left, and the owner's code was not typed in (the
+     radio buttons drew on top of each other). ❌ Encyclopedia:
+     `not implemented: the mouseUp`.
+   - Found: `systemDate` was fixed at 2026-01-01 (nobody set the date);
+     the page now passes its date and `xtask play` the system date. Test.
+     The trial logic itself is not inspected or changed (ADR 0005).
+   - `xtask play` prints each dialog (items, masked owner values) and the
+     answer, to see why the owner's answer is not taken.
 
 ## M1 — static Home (started 2026-10-30, done 2026-10-31)
 

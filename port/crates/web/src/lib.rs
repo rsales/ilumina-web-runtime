@@ -54,6 +54,9 @@ pub struct App {
     /// Files the program changed in earlier page sessions
     /// (`Vfs::export_state`, kept by the page in browser storage).
     saved_state: String,
+    /// Today's date from the page's clock, fixed for the page session so
+    /// replays see the same day.
+    today: Option<(i64, i64, i64)>,
     pub frame: Vec<u8>,
 }
 
@@ -169,6 +172,7 @@ impl App {
             movie: String::new(),
             started: false,
             saved_state: String::new(),
+            today: None,
             frame: Vec::new(),
         }
     }
@@ -253,6 +257,11 @@ impl App {
         }
     }
 
+    /// Today's date (the page's clock), for `systemDate`.
+    pub fn set_today(&mut self, y: i64, m: i64, d: i64) {
+        self.today = Some((y, m, d));
+    }
+
     /// Set (or clear, with empty values) the owner's registration data.
     pub fn set_owner(&mut self, name: &str, email: &str, cep: &str, code: &str) {
         self.owner = (!name.is_empty() && !email.is_empty()).then(|| {
@@ -293,6 +302,9 @@ impl App {
         let casts = player::cast_files(&bytes, name)?;
         let (mut vm, mut host) = player::load_movie(vfs, name, &casts)?;
         host.fonts = Box::new(PageFonts::default());
+        if let Some(t) = self.today {
+            host.today = t;
+        }
         host.responder = Box::new(player::mui::PageUser {
             owner: self.owner.as_ref().map(|(n, e, c, k)| player::mui::Owner {
                 name: n.clone(),
@@ -982,6 +994,14 @@ pub unsafe extern "C" fn play_key(
     step_code(APP.with(|a| a.borrow_mut().play_key(k)))
 }
 
+/// Today's date from the page's clock (`systemDate`; the page calls it
+/// once at load).
+#[no_mangle]
+pub extern "C" fn set_today(y: i32, m: i32, d: i32) -> i32 {
+    APP.with(|a| a.borrow_mut().set_today(y as i64, m as i64, d as i64));
+    0
+}
+
 /// The disc path of the movie on the stage (in the result buffer).
 #[no_mangle]
 pub extern "C" fn current_movie() -> i32 {
@@ -1185,6 +1205,12 @@ mod tests {
                 app.answer("close");
                 let _ = app.play(movie).unwrap();
                 assert!(app.state().contains("C:\\kept.txt\t6869"));
+                // The page's date reaches `systemDate` (regression: fixed
+                // at 2026-01-01).
+                app.set_today(2027, 3, 4);
+                app.answer("close");
+                let _ = app.play(movie).unwrap();
+                assert_eq!(app.run.as_ref().unwrap().1.today, (2027, 3, 4));
             })
             .unwrap()
             .join()

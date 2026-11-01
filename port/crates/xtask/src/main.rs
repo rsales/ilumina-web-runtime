@@ -707,6 +707,57 @@ impl director::Files for GatedFiles {
     }
 }
 
+/// A responder that prints each dialog as the program shows it and the
+/// answer given (owner values masked), to see why a dialog repeats.
+struct Logged<R> {
+    inner: R,
+    secrets: Vec<String>,
+}
+
+impl<R> Logged<R> {
+    fn mask(&self, t: &str) -> String {
+        let mut t = t.to_string();
+        for s in self.secrets.iter().filter(|s| !s.is_empty()) {
+            t = t.replace(s.as_str(), "<owner>");
+        }
+        t
+    }
+}
+
+impl<R: player::mui::Responder> player::mui::Responder for Logged<R> {
+    fn dialog(
+        &mut self,
+        title: &str,
+        items: &[player::mui::DialogItem],
+        round: usize,
+    ) -> Option<Vec<player::mui::DialogAction>> {
+        println!("dialog {:?} (round {round}):", self.mask(title));
+        for (i, it) in items.iter().enumerate() {
+            println!(
+                "  {:>2} {:<18} enabled={} at={:?} title={:?} value={:?}",
+                i + 1,
+                it.kind,
+                it.enabled as u8,
+                it.rect,
+                self.mask(&it.title),
+                self.mask(&it.value)
+            );
+        }
+        let a = self.inner.dialog(title, items, round);
+        println!("  answer: {}", self.mask(&format!("{a:?}")));
+        a
+    }
+    fn alert(&mut self, title: &str, message: &str, buttons: &str) -> usize {
+        let b = self.inner.alert(title, message, buttons);
+        println!(
+            "alert {:?}: {:?} -> {b}",
+            self.mask(title),
+            self.mask(message)
+        );
+        b
+    }
+}
+
 struct DiscDir(PathBuf);
 impl player::DiscFiles for DiscDir {
     fn read(&self, rel: &str) -> Option<Vec<u8>> {
@@ -741,17 +792,21 @@ fn play(discs: &Path, movie: &str, out: &Path) -> Result<(), Box<dyn std::error:
     let casts = player::cast_files(&bytes, movie)?;
     let (mut vm, mut host) = player::load_movie(vfs, movie, &casts)?;
     host.fonts = Box::new(fonts::HostFonts::new());
+    host.today = player::host::system_today();
     let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let mut secrets = Vec::new();
     if let (Some(name), Some(email)) = (get("ILUMINA_REG_NAME"), get("ILUMINA_REG_EMAIL")) {
         let cep = get("ILUMINA_REG_CEP").unwrap_or_default();
         let code = get("ILUMINA_ACTIVATION_CODE").unwrap_or_default();
         secrets = vec![name.clone(), email.clone(), cep.clone(), code.clone()];
-        host.responder = Box::new(player::mui::Owner {
-            name,
-            email,
-            cep,
-            code,
+        host.responder = Box::new(Logged {
+            inner: player::mui::Owner {
+                name,
+                email,
+                cep,
+                code,
+            },
+            secrets: secrets.clone(),
         });
     }
     let mask = |t: &str| {
