@@ -216,3 +216,5 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   masked): one owner run explained a bug two browser rounds could not.
 - **Radio buttons report only the chosen one**: an `itemChanged` per radio
   makes the last one the program's choice.
+- **Mui dividers have height 210**: drawn at that size they cover buttons
+  below them; draw them as a line and let non-controls ignore the mouse.

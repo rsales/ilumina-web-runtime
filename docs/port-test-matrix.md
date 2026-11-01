@@ -319,6 +319,14 @@ Slices, each with its own check:
      program left the button disabled after `itemChanged`); white inputs.
      Text members take `rect`/`width`/`height` (box width for measuring).
      Tests (host; page logic by review). ⏳ owner.
+   - Owner's browser runs (2026-11-01, ccba603): fields in the page's
+     registration dialog take typing (white); OK did nothing (incognito).
+     Cause: Mui gives dividers a height of 210, so the divider at y 305 lay
+     over the OK button and took the click. Dividers now draw as a line and
+     labels/dividers ignore the mouse. The Bible module opens (start page,
+     book panel empty until the TreeView draws). `textStyle`/`textFont`/
+     `textSize` on members added (Bible). Test for the member props; the
+     page fix by review. ⏳ owner.
    - `xtask play` prints each dialog (items, masked owner values) and the
      answer, to see why the owner's answer is not taken.
 

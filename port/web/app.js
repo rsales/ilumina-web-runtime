@@ -366,9 +366,15 @@ function showDialog(text) {
       el.classList.add("disabled");
       if (!k.endsWith("pushbutton")) el.disabled = true;
     }
+    // Dividers are a line whatever their height (Mui gives them 210), and
+    // drawn items never take clicks. Regression: the registration dialog's
+    // divider (36, 305, 450×210) lay over the OK button, so OK did nothing.
+    const line = k.startsWith("divider");
     Object.assign(el.style, {
       position: "absolute", left: `${ix}px`, top: `${iy}px`,
-      width: +iw > 0 ? `${iw}px` : "auto", minHeight: +ih > 0 ? `${Math.min(+ih, 400)}px` : "auto",
+      width: +iw > 0 ? `${iw}px` : "auto",
+      minHeight: !line && +ih > 0 ? `${Math.min(+ih, 400)}px` : "auto",
+      pointerEvents: line || k === "label" ? "none" : "auto",
     });
     body.append(el);
   });

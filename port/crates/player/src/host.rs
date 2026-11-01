@@ -312,8 +312,15 @@ fn latin1_accent(ent: &str) -> Option<char> {
 fn apply_style(s: &mut rifx::text::TextStyle, k: &str, v: &Value) {
     match (k, v) {
         ("color" | "forecolor", Value::Color(r, g, b)) => s.color = [*r, *g, *b],
-        ("font", v) => s.font = v.to_text(),
-        ("fontsize", v) => s.size = v.to_int().clamp(1, 500) as u16,
+        ("font" | "textfont", v) => s.font = v.to_text(),
+        ("fontsize" | "textsize", v) => s.size = v.to_int().clamp(1, 500) as u16,
+        // `textStyle`: "bold italic" or "plain".
+        ("textstyle", v) => {
+            let t = v.to_text().to_ascii_lowercase();
+            s.bold = t.contains("bold");
+            s.italic = t.contains("italic");
+            s.underline = t.contains("underline");
+        }
         ("fontstyle", Value::List(l)) => {
             let has = |n: &str| {
                 l.borrow()
@@ -359,6 +366,10 @@ pub const MEMBER_STYLE_PROPS: &[&str] = &[
     "fontsize",
     "fontstyle",
     "usehypertextstyles",
+    // Fields' older names for font props. Regression: Bible sets textStyle.
+    "textstyle",
+    "textfont",
+    "textsize",
     // ⏳ Drawn from the top for now; kept for reading back.
     "scrolltop",
     "alignment",
@@ -3000,6 +3011,10 @@ mod tests {
             .set_prop(&mut vm, &t, "width", &Value::Int(90))
             .unwrap());
         assert_eq!(host.measure(5, 2).unwrap().1, 90);
+        assert!(host
+            .set_prop(&mut vm, &t, "textStyle", &Value::str("bold"))
+            .unwrap());
+        assert!(host.styled_text(5, 2).unwrap().runs[0].style.bold);
         // Extras sets a field's scrollTop.
         assert!(MEMBER_STYLE_PROPS.contains(&"scrolltop"));
         host.members.push(MemberInfo {
