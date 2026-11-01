@@ -35,6 +35,12 @@ M0 status:
 
 See `docs/port-test-matrix.md`.
 
+**M3 Bible started (2026-11-01):** natively, Home → Bible draws the book
+tree; clicking Gênesis opens its introduction, and a verse reference opens
+Gênesis 1 (RTF from Valentina). See the matrix's M3 section. Next: check it
+in the page, superscript verse numbers, the empty "Referência" panel,
+tree scroll bar/metrics against Boxedwine.
+
 **Activation works (2026-11-01):** `xtask play` with the owner's `.env`
 (read by xtask itself) registers, chooses "Possuo o meu Código…", types the
 owner's code, and the original Lingo answers "Obrigado por ativar o

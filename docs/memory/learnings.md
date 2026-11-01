@@ -218,3 +218,9 @@ Append new entries at the top. Format: `YYYY-MM-DD — fact. Evidence. (→ prom
   makes the last one the program's choice.
 - **Mui dividers have height 210**: drawn at that size they cover buttons
   below them; draw them as a line and let non-controls ignore the mouse.
+- **Xtra callbacks have no `me`**: `on TreeViewSingleClick intRefCon, …`
+  in a behavior gets the refcon as its first parameter.
+- **`go` moves the playhead at once**: a later `go the frame` in the same
+  frame must see the new frame.
+- **`vm.call_log`** (the `ILUMINA_CALL_LOG` hook in the disc tests) shows
+  which handlers a click runs: the fastest way to find where it stops.

@@ -1,7 +1,9 @@
 //! The TreeView Xtra (`*XTV` sprite methods): a tree of nodes per sprite,
 //! as Lingo builds it. Signatures come from the calls the program makes
-//! (ADR 0008: behaviour, not the Xtra's code). ⏳ Drawing and the
-//! `treeView*` mouse callbacks come with the Bible milestone (M3).
+//! (ADR 0008: behaviour, not the Xtra's code). Drawn rows, hit testing and
+//! the `TreeViewSingleClick`/`treeViewMouseEnter`/`Exit` callbacks follow
+//! what the scripts expect; ⏳ the exact metrics and the scroll bar are to
+//! compare with the original (Boxedwine screenshots).
 
 use lingo_vm::Value;
 use std::collections::HashMap;
@@ -36,7 +38,26 @@ pub struct Tree {
     pub refcon: Value,
     /// Settings kept for reading back (colors, line mode, scroll bars…).
     pub settings: HashMap<String, Vec<Value>>,
+    /// The node last clicked (drawn highlighted), 0 = none.
+    pub selected: i64,
+    /// The node under the mouse (for enter/exit callbacks), 0 = none.
+    pub hover: i64,
+    /// Pixels scrolled down.
+    pub scroll: i64,
 }
+
+/// Where a point falls in the tree: the node and whether it is on the
+/// node's icon (1) or its text (2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hit {
+    pub node: i64,
+    pub icon_or_text: i64,
+}
+
+/// Pixels of indent per level and between icon and text.
+const INDENT: i64 = 14;
+const GAP: i64 = 4;
+const LEFT: i64 = 4;
 
 impl Default for Tree {
     fn default() -> Self {
@@ -47,6 +68,215 @@ impl Default for Tree {
             spacing: DEFAULT_SPACING,
             refcon: Value::Int(0),
             settings: HashMap::new(),
+            selected: 0,
+            hover: 0,
+            scroll: 0,
+        }
+    }
+}
+
+/// A Director 16-bit-per-channel colour (`setTextHiliteColorXTV(52942, …)`)
+/// or an 8-bit one, as RGB.
+fn rgb16(v: &[Value]) -> Option<[u8; 3]> {
+    let c: Vec<i64> = v.iter().take(3).map(|x| x.to_int()).collect();
+    if c.len() < 3 {
+        return None;
+    }
+    let big = c.iter().any(|&x| x > 255);
+    Some([0, 1, 2].map(|i| {
+        if big {
+            (c[i] >> 8) as u8
+        } else {
+            c[i].clamp(0, 255) as u8
+        }
+    }))
+}
+
+impl Tree {
+    /// The text style of font id `id` ("name size style" words).
+    pub fn font_style(&self, id: i64) -> rifx::text::TextStyle {
+        let f = self.fonts.get(id.max(0) as usize).or(self.fonts.first());
+        let words: Vec<&str> = f.map(|s| s.split(' ').collect()).unwrap_or_default();
+        // The name may have spaces: the size is the second word from the end.
+        let n = words.len();
+        let mut st = rifx::text::TextStyle::default();
+        if n >= 3 {
+            st.font = words[..n - 2].join(" ");
+            st.size = words[n - 2].parse().unwrap_or(12);
+            let style = words[n - 1].to_ascii_lowercase();
+            st.bold = style.contains("bold") || style == "1";
+            st.italic = style.contains("italic") || style == "2";
+        }
+        st
+    }
+
+    /// Height of one row: the tallest font's line plus the spacing.
+    pub fn row_height(&self, fonts: &dyn director::text::Fonts) -> i64 {
+        let mut h = 0.0f32;
+        for i in 0..self.fonts.len() as i64 {
+            let m = fonts.line(&self.font_style(i));
+            h = h.max(m.ascent + m.descent);
+        }
+        (h.ceil() as i64).max(1) + self.spacing
+    }
+
+    fn depth(&self, mut id: i64) -> i64 {
+        let mut d = 0;
+        while let Some(n) = self.node(id) {
+            if n.parent <= ROOT {
+                break;
+            }
+            id = n.parent;
+            d += 1;
+        }
+        d
+    }
+
+    /// The icon id a node shows: 2/3 collapsed/expanded for parents, 0 for
+    /// leaves (1 when selected).
+    pub fn icon_of(&self, id: i64) -> i64 {
+        let Some(n) = self.node(id) else { return 0 };
+        let state = if n.children.is_empty() {
+            (id == self.selected) as i64
+        } else if n.expanded {
+            3
+        } else {
+            2
+        };
+        n.icons
+            .get(&state)
+            .or(n.icons.get(&0))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// (cast lib, member, width, height) of icon id `i`.
+    pub fn icon(&self, i: i64) -> Option<(i64, i64, i64, i64)> {
+        let w: Vec<i64> = self
+            .icons
+            .get(i.max(0) as usize)?
+            .split(' ')
+            .map(|x| x.parse().unwrap_or(0))
+            .collect();
+        match w.as_slice() {
+            [l, m, _, iw, ih, ..] if *m > 0 => Some((*l, *m, *iw, *ih)),
+            _ => None,
+        }
+    }
+
+    /// The node and part under (x, y), relative to the sprite.
+    pub fn hit(&self, x: i64, y: i64, fonts: &dyn director::text::Fonts) -> Option<Hit> {
+        let row = (y + self.scroll).div_euclid(self.row_height(fonts));
+        let id = *self.visible().get(usize::try_from(row).ok()?)?;
+        let left = LEFT + self.depth(id) * INDENT;
+        let iw = self.icon(self.icon_of(id)).map_or(0, |i| i.2);
+        let on_icon = x >= left && x < left + iw.max(1) + GAP / 2;
+        Some(Hit {
+            node: id,
+            icon_or_text: if on_icon { 1 } else { 2 },
+        })
+    }
+
+    /// Draw the rows into a `w`×`h` bitmap (transparent background).
+    pub fn render(
+        &self,
+        w: i64,
+        h: i64,
+        fonts: &dyn director::text::Fonts,
+        icon_bitmap: &dyn Fn(i64, i64) -> Option<std::rc::Rc<director::Bitmap>>,
+    ) -> director::Bitmap {
+        let (w, h) = (w.max(1) as usize, h.max(1) as usize);
+        let mut canvas = director::Canvas::new(w, h, [255, 255, 255]);
+        let rh = self.row_height(fonts);
+        let hilite = self
+            .settings
+            .get("settexthilitecolor")
+            .and_then(|v| rgb16(v))
+            .unwrap_or([206, 214, 222]);
+        for (row, id) in self.visible().into_iter().enumerate() {
+            let top = row as i64 * rh - self.scroll;
+            if top + rh < 0 {
+                continue;
+            }
+            if top >= h as i64 {
+                break;
+            }
+            let n = &self.nodes[id as usize];
+            let mut x = LEFT + self.depth(id) * INDENT;
+            if let Some((lib, member, iw, ih)) = self.icon(self.icon_of(id)) {
+                if let Some(b) = icon_bitmap(lib, member) {
+                    let s = rifx::score::Sprite {
+                        number: 0,
+                        kind: 1,
+                        ink: 36,
+                        fore: 255,
+                        back: 0,
+                        cast_lib: lib as u16,
+                        member: member as u16,
+                        top: (top + (rh - ih) / 2 + b.reg_y as i64) as i16,
+                        left: (x + b.reg_x as i64) as i16,
+                        height: ih.max(1) as u16,
+                        width: iw.max(1) as u16,
+                        blend: 0,
+                        stretch: false,
+                        color_flag: 0,
+                        fore_rgb: [0; 3],
+                        back_rgb: [0; 3],
+                    };
+                    canvas.draw(&b, &s);
+                }
+                x += iw + GAP;
+            }
+            let mut style = self.font_style(n.font);
+            if let Some((r, g, b)) = n.color {
+                style.color =
+                    rgb16(&[Value::Int(r), Value::Int(g), Value::Int(b)]).unwrap_or([0; 3]);
+            }
+            let text = rifx::text::StyledText {
+                text: n.name.clone(),
+                runs: vec![rifx::text::Run {
+                    start: 0,
+                    end: n.name.chars().count(),
+                    style,
+                }],
+                paragraphs: Vec::new(),
+            };
+            if id == self.selected {
+                let tw: f32 = n
+                    .name
+                    .chars()
+                    .map(|c| fonts.glyph(&text.runs[0].style, c).advance)
+                    .sum();
+                fill(
+                    &mut canvas,
+                    x - 2,
+                    top + 1,
+                    tw.ceil() as i64 + 4,
+                    rh - 2,
+                    hilite,
+                );
+            }
+            let m = fonts.line(&text.runs[0].style);
+            let ty = top + ((rh as f32 - m.ascent - m.descent) / 2.0) as i64;
+            canvas.text(&text, x, ty, w as i64 - x, rh, 255, fonts);
+        }
+        director::Bitmap {
+            width: w,
+            height: h,
+            rgba: canvas.px,
+            // Drawn at the sprite's location, its centre (see sprite rect).
+            reg_x: (w / 2) as i16,
+            reg_y: (h / 2) as i16,
+        }
+    }
+}
+
+fn fill(c: &mut director::Canvas, x: i64, y: i64, w: i64, h: i64, rgb: [u8; 3]) {
+    for yy in y.max(0)..(y + h).min(c.height as i64) {
+        for xx in x.max(0)..(x + w).min(c.width as i64) {
+            let i = (yy as usize * c.width + xx as usize) * 4;
+            c.px[i..i + 3].copy_from_slice(&rgb);
+            c.px[i + 3] = 255;
         }
     }
 }

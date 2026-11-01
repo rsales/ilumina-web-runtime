@@ -134,7 +134,17 @@ impl PlayerHost {
                     .flatten();
                 let image = (kind == "bitmap" && info.is_some_and(|m| m.file_name.is_some()))
                     .then(|| self.linked_image(lib, num))
-                    .flatten();
+                    .flatten()
+                    // A TreeView Xtra sprite: its rows, drawn by the host.
+                    .or_else(|| {
+                        let t = self.trees.get(&n)?;
+                        Some(Rc::new(t.render(
+                            s.width,
+                            s.height,
+                            self.fonts.as_ref(),
+                            &|l, m| self.member_bitmap(l, m),
+                        )))
+                    });
                 // A sprite shows its member at the member's size unless the
                 // author stretched it (⏳ the score's stretch flag).
                 let natural = match &image {
@@ -183,6 +193,10 @@ impl PlayerHost {
                     },
                     text,
                     image,
+                    scroll: info
+                        .and_then(|m| m.style.iter().find(|(k, _)| k == "scrolltop"))
+                        .map(|(_, v)| v.to_int().max(0))
+                        .unwrap_or(0),
                 }
             })
             .collect()

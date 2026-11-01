@@ -83,6 +83,8 @@ pub struct Draw {
     pub text: Option<StyledText>,
     /// Image of linked media (replaces the member's bitmap).
     pub image: Option<std::rc::Rc<Bitmap>>,
+    /// Pixels the text is scrolled up (`scrollTop`).
+    pub scroll: i64,
 }
 
 /// A cast library with its members, loaded from the movie or an external cast.
@@ -231,6 +233,7 @@ impl Stage {
                 .sprites(frame)?
                 .into_iter()
                 .map(|sprite| Draw {
+                    scroll: 0,
                     sprite,
                     text: None,
                     image: None,
@@ -272,6 +275,12 @@ impl Stage {
                 }
                 continue;
             }
+            // An Xtra sprite the host drew (a TreeView's rows).
+            if let (Some(MemberType::Xtra), Some(b)) = (kind, &d.image) {
+                canvas.draw(b, &s);
+                report.drawn.push(s.number);
+                continue;
+            }
             if matches!(
                 kind,
                 Some(MemberType::Text | MemberType::Field | MemberType::Xtra)
@@ -291,8 +300,16 @@ impl Stage {
                             let m = self.cast(s.cast_lib).and_then(|c| c.member(s.member));
                             FieldBox::parse(m.map(|m| &m.specific[..]).unwrap_or(&[]))
                         });
-                        let (l, t2, w2, h2) = text_box(field, &s, h as i64);
-                        canvas.text(&t, l, t2, w2, h2, a, fonts);
+                        let (l, t2, w2, mut h2) = text_box(field, &s, h as i64);
+                        // Text members show only their sprite's box, scrolled
+                        // by `scrollTop`. Regression: the Bible's book
+                        // introduction ran down over the controls below it.
+                        // (Text Xtra members are XMED, kind Xtra.)
+                        if matches!(kind, Some(MemberType::Text | MemberType::Xtra)) && s.height > 0
+                        {
+                            h2 = s.height as i64;
+                        }
+                        canvas.text_scrolled(&t, l, t2, w2, h2, d.scroll, a, fonts);
                         report.drawn.push(s.number);
                     }
                     None => report

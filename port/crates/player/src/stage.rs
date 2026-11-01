@@ -363,7 +363,13 @@ pub fn mouse(vm: &mut Vm, host: &mut PlayerHost, ev: Mouse) -> Result<(), LingoE
         Mouse::Move(x, y) | Mouse::Down(x, y) | Mouse::Up(x, y) => (x, y),
     };
     host.mouse = (x, y);
+    if matches!(ev, Mouse::Down(..)) {
+        host.click_loc = (x, y);
+    }
     let under = host.sprite_under((x, y), None).unwrap_or(0) as u16;
+    if tree_mouse(vm, host, under, ev)? {
+        return Ok(());
+    }
     match ev {
         Mouse::Move(..) => {
             let before = host.mouse_over;
@@ -388,6 +394,21 @@ pub fn mouse(vm: &mut Vm, host: &mut PlayerHost, ev: Mouse) -> Result<(), LingoE
             host.mouse_down = false;
             let down = host.click_on;
             if down == under {
+                // A click on a text sprite's hyperlink: `hyperlinkClicked`
+                // (me, href, [first, last]) to its behaviors, as Director
+                // does. Regression: the Bible's verse references did nothing.
+                if under > 0 {
+                    if let Some((href, a, b)) = host.hyperlink_at(under, (x, y)) {
+                        let range = Value::list(vec![Value::Int(a as i64), Value::Int(b as i64)]);
+                        send_to_sprite(
+                            vm,
+                            host,
+                            under,
+                            "hyperlinkClicked",
+                            &[Value::str(href), range],
+                        )?;
+                    }
+                }
                 sprite_event(vm, host, under, "mouseUp")?;
             } else if down > 0 && host.sprites.contains_key(&down) {
                 send_to_sprite(vm, host, down, "mouseUpOutside", &[])?;
@@ -444,6 +465,114 @@ pub fn key(vm: &mut Vm, host: &mut PlayerHost, k: &Key) -> Result<(), LingoError
     };
     if k.down && typed && focus > 0 {
         host.type_into_sprite(focus, &k.key);
+    }
+    Ok(())
+}
+
+/// The TreeView Xtra's callbacks: `treeViewMouseEnter`/`Exit` as the
+/// pointer moves between nodes, `TreeViewSingleClick` on a press, each with
+/// (refcon, node, 1 icon / 2 text, sprite) to the sprite's behaviors.
+/// True when the tree took the event.
+// Regression: the Bible's book tree took no clicks (the Xtra's callbacks
+// were not sent).
+fn tree_mouse(vm: &mut Vm, host: &mut PlayerHost, n: u16, ev: Mouse) -> Result<bool, LingoError> {
+    // Leaving a tree: exit its hovered node.
+    let others: Vec<u16> = host
+        .trees
+        .iter()
+        .filter(|(&k, t)| k != n && t.hover != 0)
+        .map(|(&k, _)| k)
+        .collect();
+    for k in others {
+        let t = host.trees.get_mut(&k).unwrap();
+        let (old, refcon) = (std::mem::take(&mut t.hover), t.refcon.clone());
+        tree_callback(vm, host, k, "treeViewMouseExit", refcon, old, 2)?;
+    }
+    let Some(st) = host.sprites.get(&n) else {
+        return Ok(false);
+    };
+    if !host.trees.contains_key(&n) {
+        return Ok(false);
+    }
+    // Relative to the sprite's top-left (its loc is the centre).
+    let (ox, oy) = (st.loc.0 - st.width / 2, st.loc.1 - st.height / 2);
+    let (x, y) = match ev {
+        Mouse::Move(x, y) | Mouse::Down(x, y) | Mouse::Up(x, y) => (x - ox, y - oy),
+    };
+    let hit = host.trees[&n].hit(x, y, host.fonts.as_ref());
+    let refcon = host.trees[&n].refcon.clone();
+    match ev {
+        Mouse::Move(..) => {
+            let node = hit.map_or(0, |h| h.node);
+            let old = host.trees[&n].hover;
+            if node != old {
+                host.trees.get_mut(&n).unwrap().hover = node;
+                if old != 0 {
+                    tree_callback(vm, host, n, "treeViewMouseExit", refcon.clone(), old, 2)?;
+                }
+                if let Some(h) = hit {
+                    tree_callback(
+                        vm,
+                        host,
+                        n,
+                        "treeViewMouseEnter",
+                        refcon,
+                        h.node,
+                        h.icon_or_text,
+                    )?;
+                }
+            }
+            host.mouse_over = n;
+            Ok(true)
+        }
+        Mouse::Down(..) => {
+            host.mouse_down = true;
+            host.click_on = n;
+            if let Some(h) = hit {
+                host.trees.get_mut(&n).unwrap().selected = h.node;
+                tree_callback(
+                    vm,
+                    host,
+                    n,
+                    "TreeViewSingleClick",
+                    refcon,
+                    h.node,
+                    h.icon_or_text,
+                )?;
+            }
+            Ok(true)
+        }
+        Mouse::Up(..) => {
+            host.mouse_down = false;
+            Ok(true)
+        }
+    }
+}
+
+fn tree_callback(
+    vm: &mut Vm,
+    host: &mut PlayerHost,
+    n: u16,
+    handler: &str,
+    refcon: Value,
+    node: i64,
+    part: i64,
+) -> Result<(), LingoError> {
+    let instances = host
+        .sprites
+        .get(&n)
+        .map(|s| objects(&s.instances))
+        .unwrap_or_default();
+    let args = vec![
+        refcon,
+        Value::Int(node),
+        Value::Int(part),
+        Value::Int(n as i64),
+    ];
+    for o in instances {
+        if vm.call_unbound(host, &o, handler, args.clone())?.is_some() {
+            break;
+        }
     }
     Ok(())
 }

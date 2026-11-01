@@ -8,6 +8,7 @@ pub mod fonts;
 pub mod host;
 pub mod mui;
 pub mod render;
+pub mod rtf;
 pub mod stage;
 pub mod treeview;
 pub mod v4md;

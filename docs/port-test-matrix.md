@@ -10,10 +10,37 @@ stay in `work/`, never in git.
 | M0 spike | `rifx` parses all 29 movies; inventory exists; Valentina and QTVR are readable | ✅ go (2026-10-30): parser, Valentina and QTVR done; license MIT, own engine |
 | M1 static Home | First Home frame in the browser, close to the Wine reference (SSIM) | ✅ done (2026-10-31): every module renders its score frames in the browser (wasm, Mac M4), 2–10 ms per frame; pixel parity needs Lingo state, so SSIM moved to M2 |
 | M2 interactive Home | Score + Lingo VM + events; module buttons navigate | ⏳ started 2026-10-31 (slices below) |
-| M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⏳ |
+| M3 Bible | Book tree and Gênesis 1 text, same as in Wine | ⚠️ started 2026-11-01: tree, introduction and Gênesis 1 render natively (below) |
 | M4 multimedia | Animations and tours play; QTVR node switches and hotspots work | ⏳ |
 | M5 rest | Parity with `compatibility.md`, including Mui registration/activation running the original Lingo | ⏳ |
 | M6 polish | Crisp scaling, static deploy, timings on the Mac mini M4 | ⏳ |
+
+## M3 — Bible (started 2026-11-01)
+
+`bible_book_tree` disc test (a ratchet): Home → Bible, click "Gênesis" in
+the book tree, then the first verse reference of the introduction.
+
+1. ⚠️ TreeView Xtra drawing and callbacks: rows (icons from the cast, font
+   and colour per node, the clicked node highlighted), the sprite's centre
+   as its registration point, hit testing, `TreeViewSingleClick`/
+   `treeViewMouseEnter`/`Exit` to the behaviors (called without `me`, as
+   Xtras do: `Vm::call_unbound`). ✅ The 66 books draw; the click selects
+   Gênesis and the program opens its introduction ("BookIntro"). ⏳ Row
+   metrics and the scroll bar against Boxedwine; mouse wheel.
+2. ✅ `the frame` follows `go` at once (the tree's link went to its label in
+   a sprite's exitFrame, then the frame script's `go the frame` undid it).
+3. ✅ Introduction text from Valentina (HTML): text members clip to their
+   sprite and scroll with `scrollTop`; `&#150;`-style entities read as
+   Windows-1252.
+4. ✅ Verse reference click → chapter view ("ViewSingle") with Gênesis 1
+   from the database as `member.rtf` (new RTF reader: fonts, sizes, bold,
+   italic, underline, colours, alignment, `\u`, `\'hh`). Built-in
+   `hyperlinkClicked` on mouseUp over a link; `pointToWord`/`Line`/`Item`/
+   `Paragraph`, `the clickLoc`, `the rightMouseDown`, `member.selection`,
+   `member.name =`, field `border`/`margin` defaults.
+5. ⏳ Verse numbers as superscript; the "Referência" panel says no content
+   was found (to check against Wine); the translation pop-up draws black;
+   ⏳ the page (owner).
 
 ## M2 — interactive Home (started 2026-10-31)
 

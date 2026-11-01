@@ -252,8 +252,25 @@ impl Canvas {
         alpha: u32,
         fonts: &dyn Fonts,
     ) {
+        self.text_scrolled(text, left, top, width, height, 0, alpha, fonts);
+    }
+
+    /// [`Canvas::text`] with the text moved up by `scroll` pixels (still
+    /// clipped to the box).
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_scrolled(
+        &mut self,
+        text: &StyledText,
+        left: i64,
+        top: i64,
+        width: i64,
+        height: i64,
+        scroll: i64,
+        alpha: u32,
+        fonts: &dyn Fonts,
+    ) {
         let default = TextStyle::default();
-        let mut y = top as f32;
+        let mut y = (top - scroll) as f32;
         for line in layout(text, width.max(1) as f32, fonts) {
             let baseline = (y + line.ascent).round() as i64;
             // Trailing spaces do not count towards the aligned width.

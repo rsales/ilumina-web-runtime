@@ -522,6 +522,7 @@ fn home_modules() {
 /// Home at frame 2, ready for the mouse.
 fn home_ready() -> Option<(Vm, PlayerHost)> {
     let (mut vm, mut host) = load("Home.dxr")?;
+    host.fonts = Box::new(fonts::HostFonts::new());
     let (failures, rest) = home_component(&mut vm, &mut host);
     assert!(failures.is_empty() && rest.iter().all(|(_, r)| r.is_ok()));
     for _ in 0..5 {
@@ -636,10 +637,242 @@ fn click_into_module(vm: &mut Vm, host: &mut PlayerHost, x: i64, y: i64) -> Stri
         }
     }
     frames.dedup();
+    // ILUMINA_TREE_DUMP: the TreeView trees as built (local; content).
+    if std::env::var("ILUMINA_TREE_DUMP").is_ok() {
+        for (n, t) in &host.trees {
+            let st = &host.sprites[n];
+            eprintln!(
+                "tree sprite {n} loc {:?} {}x{} spacing {} fonts {:?} icons {:?}",
+                st.loc, st.width, st.height, t.spacing, t.fonts, t.icons
+            );
+            let mut keys: Vec<_> = t.settings.iter().collect();
+            keys.sort_by(|a, b| a.0.cmp(b.0));
+            for (k, v) in keys {
+                eprintln!("  set {k} {v:?}");
+            }
+            for id in t.visible().into_iter().take(6) {
+                let nd = &t.nodes[id as usize];
+                eprintln!(
+                    "  node {id} {:?} kids {} icons {:?} font {} color {:?} user {:?}",
+                    nd.name,
+                    nd.children.len(),
+                    nd.icons,
+                    nd.font,
+                    nd.color,
+                    nd.user_strings
+                );
+                for &c in nd.children.iter().take(2) {
+                    let cn = &t.nodes[c as usize];
+                    eprintln!(
+                        "    child {c} {:?} kids {} icons {:?} user {:?}",
+                        cn.name,
+                        cn.children.len(),
+                        cn.icons,
+                        cn.user_strings
+                    );
+                }
+            }
+        }
+    }
     let trees: Vec<usize> = host.trees.values().map(|t| t.nodes.len() - 2).collect();
     format!(
         "{movie} OK, frames {frames:?}, dialogs {}, tree nodes {trees:?}, unanswered {:?}",
         host.dialogs_shown.len(),
         host.missing.keys().collect::<Vec<_>>()
     )
+}
+
+/// M3: the Bible's book tree. Home → Bible, click "Gênesis" in the tree
+/// (the TreeView's first row), play on: where the run goes.
+#[test]
+fn bible_book_tree() {
+    big_stack(bible_book_tree_inner);
+}
+
+fn bible_book_tree_inner() {
+    use player::stage::{mouse, step, Mouse};
+    let Some((mut vm, mut host)) = home_ready() else {
+        return;
+    };
+    let r = click_into_module(&mut vm, &mut host, 980, 190);
+    assert!(r.starts_with("Bible OK"), "{r}");
+    let (&n, tree) = host.trees.iter().next().expect("the book tree");
+    let rh = tree.row_height(host.fonts.as_ref());
+    let st = host.sprites[&n].clone();
+    if let Ok(out) = std::env::var("ILUMINA_RENDER_BIBLE") {
+        render_png(&host, "Bible.dxr", Path::new(&out));
+    }
+    // The first row's text (the sprite's loc is its centre).
+    let (x, y) = (
+        st.loc.0 - st.width / 2 + 40,
+        st.loc.1 - st.height / 2 + rh / 2,
+    );
+    let mut log = Vec::new();
+    for ev in [Mouse::Move(x, y), Mouse::Down(x, y), Mouse::Up(x, y)] {
+        log.push(format!(
+            "{ev:?}: {:?}",
+            mouse(&mut vm, &mut host, ev).map_err(|e| e.message)
+        ));
+    }
+    eprintln!(
+        "gsTreeLink after click: {:?}",
+        vm.global("gsTreeLink").to_text()
+    );
+    let alerts_before = host.alerts.len();
+    if std::env::var("ILUMINA_CALL_LOG").is_ok() {
+        vm.call_log = Some(Vec::new());
+    }
+    let mut frames = Vec::new();
+    let mut stop = None;
+    for _ in 0..30 {
+        if let Err(e) = step(&mut vm, &mut host, 66) {
+            stop = Some(e.to_string());
+            break;
+        }
+        frames.push(host.frame);
+    }
+    frames.dedup();
+    if let Some(log) = vm.call_log.take() {
+        for l in log
+            .iter()
+            .filter(|l| !l.contains("exitFrame") || l.trim_start().len() == l.len())
+            .take(150)
+        {
+            eprintln!("call {l}");
+        }
+    }
+    let label = host
+        .score
+        .as_ref()
+        .and_then(|s| s.labels.iter().rfind(|(f, _)| *f <= host.frame).cloned());
+    eprintln!("tree click: {log:?}");
+    eprintln!(
+        "after the click: frames {frames:?}, label {label:?}, stop {stop:?}, selected {}",
+        host.trees[&n].selected
+    );
+    eprintln!("unanswered: {:?}", host.missing.keys().collect::<Vec<_>>());
+    eprintln!(
+        "gsTreeLink after frames: {:?}; alerts {:?}; go_movie {:?}",
+        vm.global("gsTreeLink").to_text(),
+        &host.alerts[alerts_before..],
+        host.go_movie
+    );
+    if std::env::var("ILUMINA_TEXT_SPRITES").is_ok() {
+        let mut ns: Vec<_> = host.sprites.keys().copied().collect();
+        ns.sort();
+        for k in ns {
+            let st = &host.sprites[&k];
+            if let Some((l, m)) = st.member {
+                if let Some(mi) = host.member_info(l, m) {
+                    if let Some(t) = &mi.text {
+                        eprintln!(
+                            "text sprite {k}: {} {l}:{m} loc {:?} {}x{} str {} vis {} {:?}",
+                            mi.kind,
+                            st.loc,
+                            st.width,
+                            st.height,
+                            st.stretched,
+                            st.visible,
+                            t.chars().take(24).collect::<String>()
+                        );
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(out) = std::env::var("ILUMINA_RENDER_BIBLE_CLICK") {
+        render_png(&host, "Bible.dxr", Path::new(&out));
+    }
+    assert!(log.iter().all(|l| l.ends_with("Ok(())")), "{log:?}");
+    assert_eq!(host.trees[&n].selected, 2, "the click selects Gênesis");
+    // Ratchet (2026-11-01): the click opens the book's introduction.
+    let label = host
+        .score
+        .as_ref()
+        .and_then(|s| s.labels.iter().rfind(|(f, _)| *f <= host.frame).cloned());
+    assert_eq!(label.map(|l| l.1).as_deref(), Some("BookIntro"));
+
+    // The first hyperlink of the introduction's body (a verse reference):
+    // click it and see where the run goes.
+    use lingo_vm::Host;
+    let candidates: Vec<(u16, player::stage::SpriteState)> = host
+        .sprites
+        .iter()
+        .filter(|(_, st)| st.visible && st.loc.1 > 150 && st.width > 300 && st.member.is_some())
+        .map(|(&k, st)| (k, st.clone()))
+        .collect();
+    let mut body = None;
+    for (k, st) in candidates {
+        let (l, m) = st.member.unwrap();
+        let r = lingo_vm::HostRef::Member { lib: l, number: m };
+        if let Ok(Some(Value::List(v))) = host.get_prop(&mut vm, &r, "hyperlinks") {
+            if let Some(first) = v.borrow().first().cloned() {
+                body = Some((k, st, (l, m), first));
+                break;
+            }
+        }
+    }
+    let Some((k, st, (l, m), first)) = body else {
+        panic!("no body text with hyperlinks")
+    };
+    let a = match &first {
+        Value::List(r) => r.borrow()[0].to_int(),
+        _ => 1,
+    };
+    let (ms, _) = host.measure(l, m).unwrap();
+    let (cx, cy) = ms.char_loc(a as usize);
+    let (x, y) = (st.loc.0 + cx as i64 + 3, st.loc.1 + cy as i64 - 4);
+    if std::env::var("ILUMINA_CALL_LOG").is_ok() {
+        vm.call_log = Some(Vec::new());
+    }
+    let mut log = Vec::new();
+    for ev in [Mouse::Move(x, y), Mouse::Down(x, y), Mouse::Up(x, y)] {
+        log.push(format!(
+            "{ev:?}: {:?}",
+            mouse(&mut vm, &mut host, ev).map_err(|e| e.message)
+        ));
+    }
+    let mut frames = Vec::new();
+    let mut stop = None;
+    for _ in 0..30 {
+        if let Err(e) = step(&mut vm, &mut host, 66) {
+            stop = Some(e.to_string());
+            break;
+        }
+        frames.push(host.frame);
+    }
+    frames.dedup();
+    if let Some(cl) = vm.call_log.take() {
+        for l in cl
+            .iter()
+            .filter(|l| !l.contains("exitFrame") && !l.contains("stepFrame"))
+            .take(80)
+        {
+            eprintln!("link call {l}");
+        }
+    }
+    let label = host
+        .score
+        .as_ref()
+        .and_then(|s| s.labels.iter().rfind(|(f, _)| *f <= host.frame).cloned());
+    eprintln!("link click on sprite {k} at ({x}, {y}): {log:?}; frames {frames:?}, label {label:?}, stop {stop:?}");
+    eprintln!("unanswered: {:?}", host.missing.keys().collect::<Vec<_>>());
+    if let Ok(out) = std::env::var("ILUMINA_RENDER_BIBLE_LINK") {
+        render_png(&host, "Bible.dxr", Path::new(&out));
+    }
+    // Ratchet (2026-11-01): the verse reference opens the chapter view and
+    // the chapter arrives as RTF from the database (no content checked).
+    assert!(stop.is_none(), "{stop:?}");
+    assert_eq!(label.map(|l| l.1).as_deref(), Some("ViewSingle"));
+    let chapter = host
+        .members
+        .iter()
+        .find(|m| m.style.iter().any(|(k, _)| k == "rtf"))
+        .and_then(|m| m.text.clone())
+        .unwrap_or_default();
+    assert!(
+        chapter.chars().count() > 1000,
+        "chapter text: {} chars",
+        chapter.chars().count()
+    );
 }

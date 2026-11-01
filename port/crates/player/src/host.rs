@@ -242,7 +242,14 @@ pub fn html_parse(html: &str) -> (String, Vec<(usize, usize, String)>) {
                             Some(h) => u32::from_str_radix(h, 16).ok(),
                             None => n.parse().ok(),
                         })
-                        .and_then(char::from_u32),
+                        .and_then(|n| match n {
+                            // `&#150;` and friends mean Windows-1252 (the
+                            // authors' charset), as Director reads them.
+                            // Regression: "1450–1410" showed a control
+                            // character in the Bible's book introduction.
+                            0x80..=0x9f => crate::vfs::text_of(&[n as u8]).chars().next(),
+                            n => char::from_u32(n),
+                        }),
                 }
             });
             match (decoded, end) {
@@ -366,6 +373,7 @@ pub const MEMBER_STYLE_PROPS: &[&str] = &[
     "fontsize",
     "fontstyle",
     "usehypertextstyles",
+    "selection",
     // Fields' older names for font props. Regression: Bible sets textStyle.
     "textstyle",
     "textfont",
@@ -514,6 +522,8 @@ pub struct PlayerHost {
     pub sounds: HashMap<i64, Value>,
     /// The button is down.
     pub mouse_down: bool,
+    /// Where the last press was (`the clickLoc`).
+    pub click_loc: (i64, i64),
     /// The sprite the last press went to (`the clickOn`).
     pub click_on: u16,
 }
@@ -626,6 +636,7 @@ impl PlayerHost {
             go_movie: None,
             mouse: (-1, -1),
             mouse_over: 0,
+            click_loc: (0, 0),
             member_ranges: HashMap::new(),
             sounds: HashMap::new(),
             trees: HashMap::new(),
@@ -930,6 +941,19 @@ impl PlayerHost {
         out
     }
 
+    /// The hyperlink under a stage point on sprite `n`: (href, first, last).
+    pub fn hyperlink_at(&self, n: u16, p: (i64, i64)) -> Option<(String, usize, usize)> {
+        let c = self.point_to_char(n as i64, (p.0 as f64, p.1 as f64));
+        if c < 1 {
+            return None;
+        }
+        let (l, m) = self.sprites.get(&n)?.member?;
+        self.member_links(l, m)
+            .into_iter()
+            .find(|(s, e, _)| *s as i64 <= c && c <= *e as i64)
+            .map(|(s, e, h)| (h, s, e))
+    }
+
     /// `pointToChar(sprite, point)`: the char (1-based) of a text sprite
     /// under a stage point, -1 outside the sprite.
     fn point_to_char(&self, sprite: i64, p: (f64, f64)) -> i64 {
@@ -1177,6 +1201,14 @@ impl PlayerHost {
             .and_then(|(l, m)| self.member_info(l, m))
             .and_then(|m| m.bitmap)
             .map(|b| scaled_reg(b, st.width, st.height, st.stretched))
+            // A TreeView sprite's registration point is its centre.
+            // Regression: the Bible's book tree was drawn and hit-tested
+            // half a sprite down and to the right.
+            .or_else(|| {
+                self.trees
+                    .contains_key(&(n as u16))
+                    .then_some((st.width / 2, st.height / 2))
+            })
             .unwrap_or((0, 0));
         let (l, t) = (st.loc.0 - reg.0, st.loc.1 - reg.1);
         Some(match lname {
@@ -1553,6 +1585,43 @@ impl lingo_vm::Host for PlayerHost {
                 match tree.method(l, &args[1..]) {
                     Some(v) => v,
                     None => return Ok(None),
+                }
+            }
+            // pointToWord/Line/Item/Paragraph: the chunk number of the char
+            // under the point, -1 outside. Regression: the Bible's hyperlink
+            // behavior asks for the word under the click.
+            "pointtoword" | "pointtoline" | "pointtoitem" | "pointtoparagraph" => {
+                use lingo_vm::chunk::{count, Kind};
+                let n = match &a0 {
+                    Value::Host(HostRef::Sprite(n)) => *n,
+                    v => v.to_int(),
+                };
+                let Value::Point(x, y) = arg(args, 1) else {
+                    return Ok(None);
+                };
+                let c = self.point_to_char(n, (x, y));
+                let text = self
+                    .sprites
+                    .get(&(n as u16))
+                    .and_then(|s| s.member)
+                    .and_then(|(l, m)| self.member_info(l, m))
+                    .and_then(|m| m.text.clone())
+                    .unwrap_or_default();
+                if c < 1 {
+                    Value::Int(-1)
+                } else {
+                    let prefix: String = text.chars().take(c as usize).collect();
+                    let kind = match name.to_ascii_lowercase().as_str() {
+                        "pointtoword" => Kind::Word,
+                        "pointtoitem" => Kind::Item,
+                        _ => Kind::Line,
+                    };
+                    let delim = self
+                        .settings
+                        .get("itemdelimiter")
+                        .map(|d| d.to_text().chars().next().unwrap_or(','))
+                        .unwrap_or(',');
+                    Value::Int(count(&prefix, kind, delim).max(1) as i64)
                 }
             }
             "pointtochar" | "pointinhyperlink" => {
@@ -1975,7 +2044,15 @@ impl lingo_vm::Host for PlayerHost {
         if let HostRef::Sprite(n) = target {
             let lname = name.to_ascii_lowercase();
             // `sprite(n).pointToChar(pt)` = `pointToChar(sprite(n), pt)`.
-            if matches!(lname.as_str(), "pointtochar" | "pointinhyperlink") {
+            if matches!(
+                lname.as_str(),
+                "pointtochar"
+                    | "pointinhyperlink"
+                    | "pointtoword"
+                    | "pointtoline"
+                    | "pointtoitem"
+                    | "pointtoparagraph"
+            ) {
                 let mut all = vec![Value::Host(target.clone())];
                 all.extend_from_slice(args);
                 return self.call(_vm, name, &all);
@@ -2145,6 +2222,20 @@ impl lingo_vm::Host for PlayerHost {
                         .find(|(k, _)| k == p)
                         .map(|(_, v)| v.clone())
                         .unwrap_or_default(),
+                    // Field box defaults until Lingo sets them (⏳ the
+                    // authored values). Regression: "Single Scrollbar"
+                    // reads a field's border.
+                    ("border" | "margin" | "scrolltop", Some(m))
+                        if matches!(m.kind.as_str(), "field" | "text")
+                            && !m.style.iter().any(|(k, _)| *k == lname) =>
+                    {
+                        Value::Int(0)
+                    }
+                    // No selection made (⏳ selecting with the mouse).
+                    // Regression: the Bible's hyperlink behavior reads it.
+                    ("selection", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
+                        Value::list(vec![Value::Int(0), Value::Int(0)])
+                    }
                     // No links set: none (⏳ links authored in XMED).
                     ("hyperlinks", Some(m)) if matches!(m.kind.as_str(), "field" | "text") => {
                         Value::list(vec![])
@@ -2280,6 +2371,48 @@ impl lingo_vm::Host for PlayerHost {
                     value.clone(),
                 ));
                 return Ok(true);
+            }
+        }
+        // `member.rtf = …`: the text and its styles from RTF (the Bible's
+        // chapters).
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("rtf") {
+                if let Some(m) = self.members.iter_mut().find(|m| {
+                    m.lib as i64 == *lib
+                        && m.number as i64 == *number
+                        && matches!(m.kind.as_str(), "field" | "text")
+                }) {
+                    let raw = value.to_text();
+                    if std::env::var("ILUMINA_DUMP_RTF").is_ok() {
+                        eprintln!("rtf: {}", raw.chars().take(1200).collect::<String>());
+                    }
+                    let st = crate::rtf::parse(&raw);
+                    m.text = Some(st.text.clone());
+                    m.styled = Some(st);
+                    m.style.retain(|(k, _)| {
+                        !matches!(
+                            k.as_str(),
+                            "html" | "hyperlinks" | "hyperlinktargets" | "rtf"
+                        )
+                    });
+                    m.style.push(("rtf".into(), Value::Str(raw)));
+                    self.member_ranges.remove(&(*lib, *number));
+                    return Ok(true);
+                }
+            }
+        }
+        // `member.name = …` renames the member (lookups by name follow).
+        // Regression: the Bible's "Link Intro Timeline" renames members.
+        if let HostRef::Member { lib, number } = target {
+            if name.eq_ignore_ascii_case("name") {
+                if let Some(m) = self
+                    .members
+                    .iter_mut()
+                    .find(|m| m.lib as i64 == *lib && m.number as i64 == *number)
+                {
+                    m.name = value.to_text();
+                    return Ok(true);
+                }
             }
         }
         if let HostRef::Member { lib, number } = target {
@@ -2632,7 +2765,11 @@ impl PlayerHost {
             "moviepath" => Value::str(format!("{APP_DIR}Files\\")),
             "applicationpath" => Value::str(APP_DIR),
             "moviename" => Value::str(self.movie_name.clone()),
-            "frame" => Value::Int(self.frame as i64),
+            // After `go`, `the frame` is the frame gone to: the playhead
+            // moves at once. Regression: the Bible tree's link went to its
+            // label in a sprite's exitFrame, then the frame script's
+            // `go the frame` sent the playhead back.
+            "frame" => Value::Int(self.go_target.unwrap_or(self.frame) as i64),
             "framelabel" => self
                 .score
                 .as_ref()
@@ -2677,6 +2814,11 @@ impl PlayerHost {
             "mousedown" | "stilldown" => Value::Int(self.mouse_down as i64),
             // Regression: Encyclopedia polls `the mouseUp` (not implemented).
             "mouseup" => Value::Int(!self.mouse_down as i64),
+            // The page has one button. Regression: the Bible's hyperlink
+            // behavior checks `the rightMouseDown`.
+            "rightmousedown" => Value::Int(0),
+            "clickloc" => Value::Point(self.click_loc.0 as f64, self.click_loc.1 as f64),
+            "rightmouseup" => Value::Int(1),
             "clickon" => Value::Int(self.click_on as i64),
             "mousemember" => match self
                 .sprite_under(self.mouse, None)
@@ -2858,6 +3000,10 @@ mod tests {
         assert_eq!(
             html_to_text("<p>Bem-vindo &amp; <b>ol&aacute;</b><br>x&#233;</p>\n<p>y</p>"),
             "Bem-vindo & olá\rxé\ry"
+        );
+        assert_eq!(
+            html_to_text("1450&#150;1410 &#147;x&#148;"),
+            "1450–1410 “x”"
         );
         let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
         let mut vm = Vm::new(lingo_vm::Program::default());
@@ -3057,6 +3203,15 @@ mod tests {
             style: vec![("fontsize".into(), Value::Int(10))],
         });
         let m = HostRef::Member { lib: 1, number: 1 };
+        assert_eq!(
+            host.get_prop(&mut vm, &m, "border")
+                .unwrap()
+                .unwrap()
+                .to_int(),
+            0
+        );
+        let sel = host.get_prop(&mut vm, &m, "selection").unwrap().unwrap();
+        assert_eq!(sel.to_string(), "[0, 0]");
         let none = host.get_prop(&mut vm, &m, "hyperlinks").unwrap().unwrap();
         assert_eq!(none.to_string(), "[]");
         host.set_prop(
@@ -3115,6 +3270,14 @@ mod tests {
         assert_eq!(call(&mut host, &mut vm, "pointInHyperlink", 120.0), 1);
         assert_eq!(call(&mut host, &mut vm, "pointInHyperlink", 101.0), 0);
         assert_eq!(call(&mut host, &mut vm, "pointToChar", 50.0), -1);
+        // 'c' (4th char) is in the 2nd word.
+        assert_eq!(call(&mut host, &mut vm, "pointToWord", 120.0), 2);
+        assert_eq!(call(&mut host, &mut vm, "pointToLine", 120.0), 1);
+        assert_eq!(
+            host.hyperlink_at(3, (120, 52)),
+            Some(("x:1".to_string(), 4, 5))
+        );
+        assert_eq!(host.hyperlink_at(3, (101, 52)), None);
     }
 
     #[test]
@@ -3231,6 +3394,12 @@ mod tests {
         assert_eq!(host.the_value("key").unwrap().to_text(), "2");
         assert_eq!(host.the_value("shiftdown").unwrap().to_int(), 1);
         assert_eq!(host.the_value("mouseup").unwrap().to_int(), 1);
+        assert_eq!(host.the_value("rightmousedown").unwrap().to_int(), 0);
+        crate::stage::mouse(&mut vm, &mut host, crate::stage::Mouse::Down(7, 8)).unwrap();
+        assert_eq!(
+            host.the_value("clickloc").unwrap().to_string(),
+            "point(7, 8)"
+        );
         host.mouse_down = true;
         assert_eq!(host.the_value("mouseup").unwrap().to_int(), 0);
         host.mouse_down = false;
@@ -3443,6 +3612,19 @@ mod tests {
         assert!(item_enabled(&items, 1));
         assert!(!item_enabled(&items, 2));
         assert!(!item_enabled(&items, 3));
+    }
+
+    #[test]
+    fn the_frame_follows_go_at_once() {
+        let mut host = PlayerHost::new(Vfs::new(Box::new(NoDisc), Vec::<String>::new()));
+        let mut vm = Vm::new(lingo_vm::Program::default());
+        host.frame = 4;
+        host.call(&mut vm, "go", &[Value::Int(9)]).unwrap();
+        assert_eq!(host.the_value("frame").unwrap().to_int(), 9);
+        // `go the frame` then keeps the new target.
+        let f = host.the_value("frame").unwrap();
+        host.call(&mut vm, "go", &[f]).unwrap();
+        assert_eq!(host.go_target, Some(9));
     }
 
     #[test]

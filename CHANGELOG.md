@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Port (M3): the Bible's book tree draws and takes clicks; the book
+  introduction and Gênesis 1 (RTF from the database) display.
 - Port: every Home module (Bíblia, Enciclopédia, Viagem no Tempo,
   Multimídia, Extras, Estudo Pessoal) starts from the side navigation; the
   TreeView Xtra model, timeouts, member text chunks and hyperlinks.

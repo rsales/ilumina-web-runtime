@@ -105,6 +105,9 @@ pub struct Vm {
     passed: Vec<Vec<Value>>,
     pending_trace: Option<Vec<String>>,
     rng: u64,
+    /// When set, every handler entered is logged (indented by depth): a
+    /// debugging aid for following what a click does.
+    pub call_log: Option<Vec<String>>,
 }
 
 const MAX_DEPTH: usize = 256;
@@ -163,6 +166,7 @@ impl Vm {
             passed: Vec::new(),
             pending_trace: None,
             rng: 0x2545_f491_4f6c_dd1d,
+            call_log: None,
         }
     }
 
@@ -353,6 +357,22 @@ impl Vm {
     }
 
     /// True when the object (or its ancestors) has handler `name`.
+    /// Call `o`'s handler with `args` as its parameters, `o` being `me` for
+    /// property access but not passed as the first parameter: how Xtras
+    /// call back into behaviors (`on TreeViewSingleClick intRefCon, …`).
+    pub fn call_unbound(
+        &mut self,
+        host: &mut dyn Host,
+        o: &ObjectRef,
+        name: &str,
+        args: Vec<Value>,
+    ) -> Result<Option<Value>, LingoError> {
+        match self.find_method(o, name) {
+            Some((s, h)) => self.run(host, s, h, Some(o.clone()), args).map(Some),
+            None => Ok(None),
+        }
+    }
+
     pub fn has_method(&self, o: &ObjectRef, name: &str) -> bool {
         self.find_method(o, name).is_some()
     }
@@ -608,6 +628,9 @@ impl Vm {
             stack: Vec::new(),
             tell: Vec::new(),
         };
+        if let Some(log) = &mut self.call_log {
+            log.push(format!("{}{label}", "  ".repeat(self.stack_trace.len())));
+        }
         self.stack_trace.push(label);
         let r = self.exec(host, &mut f);
         let r = match r {
